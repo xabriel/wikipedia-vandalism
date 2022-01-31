@@ -4,11 +4,9 @@
 
 if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
 if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
-# if(!require(data.table)) install.packages("data.table", repos = "http://cran.us.r-project.org")
 
 library(tidyverse)
 library(caret)
-# library(data.table)
 
 #
 # SETUP
@@ -75,53 +73,59 @@ revisions <- map_dfr(revisionPaths, function(path) {
 
 rm(revisionPaths, parentPath)
 
-# save here as pristine?
-
-# define a function that does the diff
-nativediff <- Vectorize(
+# git diff system call with all the arguments needed to make the output easily parsable
+# the key arg is --word-diff=porcelain, which separates edits into additions (+) and deletions (-)
+gitdiff <- Vectorize(
   function(old, new) {
-    d <- diffobj::diffChr(target = old,
-                          current = new,
-                          mode = "unified", # output in one line
-                          context = 0, # just the actual additions, deletions
-                          format = "raw", # plain text
-                          word.diff = FALSE, #  TODO: false to make it faster, this may affect outcome!
-                          pager = "off", # should not matter, but just in case
-                          guides = FALSE, # don't modify diff with cues
-                          ignore.white.space = FALSE)
-    # paste(as.character(d), collapse = "\n")
-    list(as.character(d))
+    system2(command = "git",
+            args = c("diff", "--minimal", "--no-prefix", "--no-index", "--word-diff=porcelain",
+                     "--unified=0", old, new),
+            stdout = TRUE)
   })
 
 # let's calculate the diffs
 start <- proc.time()
 
+# this takes ~10mins
 diffs <- edits %>%
-  sample_frac(0.1) %>%
   select(oldrevisionid, newrevisionid, class) %>%
   left_join(
-    revisions %>% select(revisionid, text) %>% rename(oldtext = text),
+    revisions %>%
+      select(revisionid, revisionpath) %>%
+      rename(oldrevisionpath = revisionpath),
     by = c("oldrevisionid" = "revisionid")) %>%
   left_join(
-    revisions %>% select(revisionid, text) %>% rename(newtext = text),
+    revisions %>%
+      select(revisionid, revisionpath) %>%
+      rename(newrevisionpath = revisionpath),
     by = c("newrevisionid" = "revisionid")) %>%
-  mutate(diff = nativediff(oldtext, newtext)) %>%
+  mutate(diff = gitdiff(oldrevisionpath, newrevisionpath)) %>%
   select(oldrevisionid, newrevisionid, diff) %>%
   mutate(additions =
-           lapply(diff, function(d) { d[str_starts(d, ">") & !str_starts(d, "> new")] })) %>%
+           lapply(diff, function(d) {
+             s = d[str_starts(d, fixed("+")) & !str_starts(d, fixed("+++"))]
+             str_sub(s, start = 2)
+             })) %>%
   mutate(deletions =
-           lapply(diff, function(d) { d[str_starts(d, "<") & !str_starts(d, "< old")] }))
+           lapply(diff, function(d) {
+             s = d[str_starts(d, fixed("-")) & !str_starts(d, fixed("---"))]
+             str_sub(s, start = 2)
+             })) %>%
+  select(oldrevisionid, newrevisionid, additions, deletions)
 
 time <- proc.time() - start
 
-# git diff --minimal --no-prefix a.txt b.txt
-# 327585467     327607921
-# FIXME: still need to test this out
-gitdiff <- function(old, new) {
-  system2(command = "git",
-          args = c("diff", "--minimal", "--no-prefix", old, new),
-          stdout = TRUE)
-}
+rm(revisions, start, time)
+
+edits <- edits %>%
+  left_join(diffs, by = c("oldrevisionid", "newrevisionid")) %>%
+  select(-diffurl)
+
+rm(diffs, gitdiff)
+
+#
+# save here as pristine.
+#
 
 # pull random true positive:
 edits %>% filter(class == "vandalism") %>% last()
