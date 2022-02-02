@@ -124,20 +124,130 @@ edits <- edits %>%
 rm(diffs, gitdiff)
 
 #
+# split into train, test, and validation sets
+#
+
+# validation set will be 50% of source data, to be comparable to [Potthast 2010]
+# Note that our classes are imbalanced:
+edits %>% pull(class) %>% table()
+# but createDataPartition takes care of stratifying splits properly.
+set.seed(123, sample.kind="Rounding")
+validation_index <- createDataPartition(y = edits %>% pull(class), times = 1, p = 0.5, list = FALSE)
+validation <- edits[validation_index, ]
+remaining <- edits[-validation_index, ]
+
+# test set will be 10% of the remaining data
+set.seed(123, sample.kind="Rounding")
+test_index <- createDataPartition(y = remaining %>% pull(class), times = 1, p = 0.1, list = FALSE)
+test <- remaining[test_index, ]
+train <- remaining[-test_index, ]
+
+rm(remaining, validation_index, test_index)
+#
 # save here as pristine.
 #
+
+# given a list of strings, concatenate them and find the number of
+# unique chars.
+num_unique_chars <- function(s) {
+  chars <- str_split(s, pattern = "")
+  length(unique(chars[[1]]))
+}
+
+
+edits[1:2,] %>%
+  select(editid, additions) %>%
+  # Ratio of upper case chars to lower case chars (all chars).
+  mutate(upper_case_ratio = upper_case_ratio(additions))
+#
+# let's start calculating features
+# 
+
+# character level features:
+edits[1:10,] %>%
+  select(editid, additions) %>%
+  mutate(additions_as_string = map_chr(additions, str_c, collapse = "\n")) %>%
+  # Ratio of upper case chars to lower case chars (all chars)
+  mutate(
+    upper_case_ratio =
+      (str_count(additions_as_string, "[A-Z]") + 1) / (str_count(additions_as_string, "[a-z]") + 1)
+  ) %>%
+  # Ratio of digits to all letters.
+  mutate(
+    digits_ratio =
+      (str_count(additions_as_string, "\\d") + 1) / (str_count(additions_as_string, ".") + 1)
+  ) %>%
+  # Ratio of special chars to all chars.
+  mutate(
+    special_chars_ratio =
+      (str_count(additions_as_string, "[^A-Za-z0-9]") + 1) / (str_count(additions_as_string, ".") + 1)
+  ) %>%
+  # Length of all inserted lines to the (1 / number of different chars)
+  mutate(
+    char_diversity =
+      str_length(additions_as_string) ^ (1 / num_unique_chars(additions_as_string))
+  ) %>%
+  # longest word
+  # FIXME: this still fails
+  mutate(
+    all_words = map_chr(additions_as_string, str_extract_all, "\\w+"),
+    all_word_lengths = map(all_words, str_length),
+    max_word_length = map_int(all_word_lengths, max)
+  ) %>%
+  select(-additions, -additions_as_string, -all_words, -all_word_lengths)
+
+# figure out most common word additions on vandalism:
+
+common_regular_words <- train %>%
+  mutate(cat_additions = paste(additions, sep = " ")) %>%
+  select(editid, class, cat_additions) %>%
+  unnest_tokens(
+    output = "word",
+    input = "cat_additions",
+    drop = TRUE,
+    token = "words",
+    to_lower = TRUE,
+    format = "text"
+  ) %>%
+  anti_join(stop_words) %>%
+  # no http words, no wiki words
+  filter(!word %in% c("ref", "http", "span", "br", "align", "cite", "style", "center", "url", "character", "text", "special:contributions", "title")) %>%
+  # no numbers
+  filter(!str_detect(word, "^\\d+$")) %>%
+  group_by(class, word) %>%
+  summarise(n = n()) %>%
+  filter(class == "regular") %>%
+  arrange(desc(n))
+
+common_vandalism_words <- train %>%
+  mutate(cat_additions = paste(additions, sep = " ")) %>%
+  select(editid, class, cat_additions) %>%
+  unnest_tokens(
+    output = "word",
+    input = "cat_additions",
+    drop = TRUE,
+    token = "words",
+    to_lower = TRUE,
+    format = "text"
+  ) %>%
+  anti_join(stop_words) %>%
+  # no http words, no wiki words
+  filter(!word %in% c("ref", "http", "span", "br", "align", "cite", "style", "center", "url", "character", "text", "special:contributions", "title")) %>%
+  # no numbers
+  filter(!str_detect(word, "^\\d+$")) %>%
+  group_by(class, word) %>%
+  summarise(n = n()) %>%
+  filter(class == "vandalism") %>%
+  arrange(desc(n)) %>%
+  slice_head(n = 100)
+
+library(tidytext)  
+
 
 # pull random true positive:
 edits %>% filter(class == "vandalism") %>% last()
 revisions %>% filter(revisionid == tp) %>% pull(text)
 
-# TODO:
-# it looks like we need to calculate the diff to move forward
-# we can do this locally by:
-# 1) keeping full path around.
-# 2) iterate over revisions, for each, calculate diff using git diff
-# ( or maybe using https://github.com/brodieG/diffobj ?)
-# 3) save it as part of edits
 
 # playground for diff:
 install.packages("diffobj")
