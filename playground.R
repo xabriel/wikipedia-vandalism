@@ -201,7 +201,34 @@ character_features <- edits %>%
   ) %>%
   select(-additions, -additions_as_string)
 
+# pull a list of profanities from https://github.com/coffee-and-fun/google-profanity-words
+profanities <- read_csv(file = "https://raw.githubusercontent.com/coffee-and-fun/google-profanity-words/b43e903ae2ee14b4101c639426a80e346641b936/data/list.txt",
+                        col_names = c("word"),
+                        col_types = cols(word = col_character())
+) %>% arrange(word) %>% pull(word)
+
+#
+# r binary search implementation based on:
+# https://en.wikipedia.org/wiki/Binary_search_algorithm#Algorithm
+#
+bin_search <- function(vec, key) {
+  l <- 1
+  r <- length(vec)
+  while (l <= r) {
+    m <- as.integer(floor( (l + r) / 2))
+    if (vec[m] < key) {
+      l <- m + 1
+    } else if (vec[m] > key) {
+      r <- m - 1 
+    } else {
+      return(m)
+    }
+  }
+  return(-1)
+}
+
 # edit comment features
+# comment_features <- edits[1:100, ] %>%
 comment_features <- edits %>%
   select(editid, editcomment) %>%
   mutate(
@@ -212,8 +239,13 @@ comment_features <- edits %>%
       str_starts(editcomment, fixed("[[Help:Reverting|Reverted]] ")) | # user revert
       str_starts(editcomment, fixed("[[WP:RBK|Reverted]]")) | # bot revert
       str_starts(editcomment, fixed("[[WP:UNDO|Undid]]")), # bot undo ( aka late revert )
-    is_bot = str_starts(editcomment, "\\[\\[WP:")
-    # TODO: add vulgarism check?
+    is_bot = str_starts(editcomment, "\\[\\[WP:"),
+    words = map(str_match_all(editcomment, "\\w+"), as.vector),
+    profanity_search = map(words,
+                      function(l) { 
+                        map_lgl(l, function(w) { bin_search(profanities, w) > 0 } )
+                      }),
+    has_profanity = map_lgl(profanity_search, function(l) { reduce(l, `|`, .init = FALSE) })
   )
 
 
