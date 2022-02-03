@@ -164,13 +164,18 @@ edits[1:2,] %>%
 # 
 
 # character level features:
-edits[1:10,] %>%
+character_features <- edits %>%
   select(editid, additions) %>%
   mutate(additions_as_string = map_chr(additions, str_c, collapse = "\n")) %>%
   # Ratio of upper case chars to lower case chars (all chars)
   mutate(
-    upper_case_ratio =
+    upper_to_lower_ratio =
       (str_count(additions_as_string, "[A-Z]") + 1) / (str_count(additions_as_string, "[a-z]") + 1)
+  ) %>%
+  # Ratio of upper case chars to all chars
+  mutate(
+    upper_to_all_ratio =
+      (str_count(additions_as_string, "[A-Z]") + 1) / (str_count(additions_as_string, ".") + 1)
   ) %>%
   # Ratio of digits to all letters.
   mutate(
@@ -187,14 +192,30 @@ edits[1:10,] %>%
     char_diversity =
       str_length(additions_as_string) ^ (1 / num_unique_chars(additions_as_string))
   ) %>%
-  # longest word
-  # FIXME: this still fails
+  # achievable compression ratio of all chars
+  # gzip chosen for its speed (https://cran.r-project.org/web/packages/brotli/vignettes/benchmarks.html)
   mutate(
-    all_words = map_chr(additions_as_string, str_extract_all, "\\w+"),
-    all_word_lengths = map(all_words, str_length),
-    max_word_length = map_int(all_word_lengths, max)
+    compression_ratio =
+      (map_int(additions_as_string, function(s) { length(memCompress(s, type = "gzip")) }) + 1) /
+      (map_int(additions_as_string, function(s) { length(as.raw(s)) }) + 1)
   ) %>%
-  select(-additions, -additions_as_string, -all_words, -all_word_lengths)
+  select(-additions, -additions_as_string)
+
+# edit comment features
+comment_features <- edits %>%
+  select(editid, editcomment) %>%
+  mutate(
+    has_comment = !editcomment == "null" | is.na(editcomment),
+    comment_length = if_else(has_comment, str_length(editcomment), 0L),
+    is_revert =
+      str_starts(editcomment, fixed("Revert")) | # user revert
+      str_starts(editcomment, fixed("[[Help:Reverting|Reverted]] ")) | # user revert
+      str_starts(editcomment, fixed("[[WP:RBK|Reverted]]")) | # bot revert
+      str_starts(editcomment, fixed("[[WP:UNDO|Undid]]")), # bot undo ( aka late revert )
+    is_bot = str_starts(editcomment, "\\[\\[WP:")
+    # TODO: add vulgarism check?
+  )
+
 
 # figure out most common word additions on vandalism:
 
