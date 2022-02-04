@@ -22,7 +22,8 @@ contractions_table %>%
   write_lines(file = "data/en/contractions.txt")
 
 
-# pull a list of profanities from https://github.com/coffee-and-fun/google-profanity-words
+# create a list of profanities
+# source: https://github.com/coffee-and-fun/google-profanity-words
 read_csv(
   file = "https://raw.githubusercontent.com/coffee-and-fun/google-profanity-words/b43e903ae2ee14b4101c639426a80e346641b936/data/list.txt",
   col_names = c("word"),
@@ -33,6 +34,7 @@ read_csv(
   write_lines(file = "data/en/profanities.txt")
 
 # create a list of 1st and 2nd person pronouns
+# source: https://www.ef.edu/english-resources/english-grammar/pronouns/
 pronouns <- tibble(
   word  = c(
     "i",
@@ -51,4 +53,7 @@ pronouns <- tibble(
     "ours",
     "ourselves"
   )
-) %>% arrange(word) %>% pull(word)
+) %>%
+  arrange(word) %>%
+  pull(word) %>%
+  write_lines(file = "data/en/pronouns.txt")
