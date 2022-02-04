@@ -1,6 +1,12 @@
 #
 # Useful scrapes to get word lists
 #
+if(!require(tidyverse)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(rvest)) install.packages("caret", repos = "http://cran.us.r-project.org")
+
+library(tidyverse)
+library(rvest)
+
 
 # scrape a list of english contractions from wikipedia
 contractions_html <- rvest::read_html("https://en.wikipedia.org/w/index.php?title=Wikipedia:List_of_English_contractions&oldid=1069197848")
@@ -25,3 +31,24 @@ read_csv(
   arrange(word) %>%
   pull(word) %>%
   write_lines(file = "data/en/profanities.txt")
+
+# create a list of 1st and 2nd person pronouns
+pronouns <- tibble(
+  word  = c(
+    "i",
+    "me",
+    "my",
+    "mine",
+    "myself",
+    "you",
+    "your",
+    "yours",
+    "yourself",
+    "yourselves",
+    "we",
+    "us",
+    "our",
+    "ours",
+    "ourselves"
+  )
+) %>% arrange(word) %>% pull(word)
