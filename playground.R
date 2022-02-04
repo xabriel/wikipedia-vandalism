@@ -123,27 +123,6 @@ rm(diffs, revisions)
 # save here as "pristine-edits-with-diffs.RData".
 #
 
-#
-# split into train, test, and validation sets
-#
-
-# validation set will be 50% of source data, to be comparable to [Potthast 2010]
-# Note that our classes are imbalanced:
-edits %>% pull(class) %>% table()
-# but createDataPartition takes care of stratifying splits properly.
-set.seed(123, sample.kind="Rounding")
-validation_index <- createDataPartition(y = edits %>% pull(class), times = 1, p = 0.5, list = FALSE)
-validation <- edits[validation_index, ]
-remaining <- edits[-validation_index, ]
-
-# test set will be 10% of the remaining data
-set.seed(123, sample.kind="Rounding")
-test_index <- createDataPartition(y = remaining %>% pull(class), times = 1, p = 0.1, list = FALSE)
-test <- remaining[test_index, ]
-train <- remaining[-test_index, ]
-
-rm(remaining, validation_index, test_index)
-
 
 #
 # let's start calculating features
@@ -187,6 +166,9 @@ character_features <- edits %>%
   ) %>%
   select(-additions, -additions_as_string)
 
+# load profanities list
+profanities <- read_lines(file = "data/en/profanities.txt")
+
 # edit comment features
 comment_features <- edits %>%
   select(editid, editcomment) %>%
@@ -202,16 +184,38 @@ comment_features <- edits %>%
     is_bot = str_starts(editcomment, "\\[\\[WP:"),
     # tokenize each comment
     word_lists = map(str_match_all(editcomment, "\\w+"), as.vector),
-    # for each token, check if there is a hit on profanity list
-    profanity_lists = map(word_lists,
-                      function(word_list) {
-                        map_lgl(word_list, function(word) { bin_search(profanities, word) > 0 } )
+    word_lists_lower = map(word_lists, str_to_lower),
+    # for each token, lowercase, and check if there is a hit on profanity list
+    profanity_lists = map(word_lists_lower,
+                      function(word_list_lower) {
+                        map_lgl(word_list_lower, function(word) { bin_search(profanities, word) > 0 } )
                       }),
     # OR all word checks. if any TRUE, comment has profanity
     has_profanity = map_lgl(profanity_lists, function(list) { reduce(list, `|`, .init = FALSE) })
   ) %>%
-  select(-word_lists, -profanity_lists)
+  select(-word_lists, -word_lists_lower, -profanity_lists)
   
+
+#
+# split into train, test, and validation sets
+#
+
+# validation set will be 50% of source data, to be comparable to [Potthast 2010]
+# Note that our classes are imbalanced:
+edits %>% pull(class) %>% table()
+# but createDataPartition takes care of stratifying splits properly.
+set.seed(123, sample.kind="Rounding")
+validation_index <- createDataPartition(y = edits %>% pull(class), times = 1, p = 0.5, list = FALSE)
+validation <- edits[validation_index, ]
+remaining <- edits[-validation_index, ]
+
+# test set will be 10% of the remaining data
+set.seed(123, sample.kind="Rounding")
+test_index <- createDataPartition(y = remaining %>% pull(class), times = 1, p = 0.1, list = FALSE)
+test <- remaining[test_index, ]
+train <- remaining[-test_index, ]
+
+rm(remaining, validation_index, test_index)
 
 
 # figure out most common word additions on vandalism:
