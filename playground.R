@@ -8,14 +8,17 @@ if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.
 library(tidyverse)
 library(caret)
 
+# load up helper functions
+source("functions.R")
+
 #
 # SETUP
 #
 
 # We utilize "PAN Wikipedia Vandalism Corpus 2010": https://webis.de/data/pan-wvc-10
 # download corpus if needed. note the zip file is 438 MBs, and it expands to 1.4 GBs.
-if (!dir.exists("data")) {
-  dir.create("data")
+if (!dir.exists("data/pan-wikipedia-vandalism-corpus-2010")) {
+  dir.create("data/pan-wikipedia-vandalism-corpus-2010")
   corpusFileName <- "data/pan-wikipedia-vandalism-corpus-2010.zip"
   corpusURI <-
     "https://zenodo.org/record/3341488/files/pan-wikipedia-vandalism-corpus-2010.zip?download=1"
@@ -66,41 +69,33 @@ revisionPaths <- list.files(path = paste(parentPath, "article-revisions", sep = 
                             recursive = TRUE)
 
 revisions <- map_dfr(revisionPaths, function(path) {
-  list(revisionid = as.integer(str_remove(basename(path), ".txt")),
-       revisionpath = path,
-       text = read_file(path))
-})
+  list(
+    revisionid = as.integer(str_remove(basename(path), ".txt")),
+    revisionpath = path,
+    revisiontext = read_file(path)
+  )
+}) %>% mutate(revisionsize = str_length(revisiontext))
 
 rm(revisionPaths, parentPath)
-
-# git diff system call with all the arguments needed to make the output easily parsable
-# the key arg is --word-diff=porcelain, which separates edits into additions (+) and deletions (-)
-gitdiff <- Vectorize(
-  function(old, new) {
-    system2(command = "git",
-            args = c("diff", "--minimal", "--no-prefix", "--no-index", "--word-diff=porcelain",
-                     "--unified=0", old, new),
-            stdout = TRUE)
-  })
 
 # let's calculate the diffs
 start <- proc.time()
 
 # this takes ~10mins
 diffs <- edits %>%
-  select(oldrevisionid, newrevisionid, class) %>%
+  select(editid, oldrevisionid, newrevisionid) %>%
   left_join(
     revisions %>%
-      select(revisionid, revisionpath) %>%
-      rename(oldrevisionpath = revisionpath),
+      select(revisionid, revisionpath, revisionsize) %>%
+      rename(oldrevisionpath = revisionpath, oldrevisionsize = revisionsize),
     by = c("oldrevisionid" = "revisionid")) %>%
   left_join(
     revisions %>%
-      select(revisionid, revisionpath) %>%
-      rename(newrevisionpath = revisionpath),
+      select(revisionid, revisionpath, revisionsize) %>%
+      rename(newrevisionpath = revisionpath, newrevisionsize = revisionsize),
     by = c("newrevisionid" = "revisionid")) %>%
-  mutate(diff = gitdiff(oldrevisionpath, newrevisionpath)) %>%
-  select(oldrevisionid, newrevisionid, diff) %>%
+  mutate(diff = git_diff(oldrevisionpath, newrevisionpath)) %>%
+  select(editid, oldrevisionid, newrevisionid, oldrevisionsize, newrevisionsize, diff) %>%
   mutate(additions =
            lapply(diff, function(d) {
              s = d[str_starts(d, fixed("+")) & !str_starts(d, fixed("+++"))]
@@ -110,18 +105,23 @@ diffs <- edits %>%
            lapply(diff, function(d) {
              s = d[str_starts(d, fixed("-")) & !str_starts(d, fixed("---"))]
              str_sub(s, start = 2)
-             })) %>%
-  select(oldrevisionid, newrevisionid, additions, deletions)
+             }))
 
 time <- proc.time() - start
+print(time)
 
-rm(revisions, start, time)
+rm(start, time)
 
 edits <- edits %>%
-  left_join(diffs, by = c("oldrevisionid", "newrevisionid")) %>%
-  select(-diffurl)
+  select(-diffurl) %>%
+  left_join(diffs %>% select(-oldrevisionid, -newrevisionid),
+            by = c("editid"))
+  
+rm(diffs, revisions)
 
-rm(diffs, gitdiff)
+#
+# save here as "pristine-edits-with-diffs.RData".
+#
 
 #
 # split into train, test, and validation sets
@@ -143,22 +143,8 @@ test <- remaining[test_index, ]
 train <- remaining[-test_index, ]
 
 rm(remaining, validation_index, test_index)
-#
-# save here as pristine.
-#
-
-# given a list of strings, concatenate them and find the number of
-# unique chars.
-num_unique_chars <- function(s) {
-  chars <- str_split(s, pattern = "")
-  length(unique(chars[[1]]))
-}
 
 
-edits[1:2,] %>%
-  select(editid, additions) %>%
-  # Ratio of upper case chars to lower case chars (all chars).
-  mutate(upper_case_ratio = upper_case_ratio(additions))
 #
 # let's start calculating features
 # 
@@ -201,34 +187,7 @@ character_features <- edits %>%
   ) %>%
   select(-additions, -additions_as_string)
 
-# pull a list of profanities from https://github.com/coffee-and-fun/google-profanity-words
-profanities <- read_csv(file = "https://raw.githubusercontent.com/coffee-and-fun/google-profanity-words/b43e903ae2ee14b4101c639426a80e346641b936/data/list.txt",
-                        col_names = c("word"),
-                        col_types = cols(word = col_character())
-) %>% arrange(word) %>% pull(word)
-
-#
-# r binary search implementation based on:
-# https://en.wikipedia.org/wiki/Binary_search_algorithm#Algorithm
-#
-bin_search <- function(vec, key) {
-  l <- 1
-  r <- length(vec)
-  while (l <= r) {
-    m <- as.integer(floor( (l + r) / 2))
-    if (vec[m] < key) {
-      l <- m + 1
-    } else if (vec[m] > key) {
-      r <- m - 1 
-    } else {
-      return(m)
-    }
-  }
-  return(-1)
-}
-
 # edit comment features
-# comment_features <- edits[1:100, ] %>%
 comment_features <- edits %>%
   select(editid, editcomment) %>%
   mutate(
@@ -236,17 +195,23 @@ comment_features <- edits %>%
     comment_length = if_else(has_comment, str_length(editcomment), 0L),
     is_revert =
       str_starts(editcomment, fixed("Revert")) | # user revert
+      str_starts(editcomment, fixed("revert")) | # user revert
       str_starts(editcomment, fixed("[[Help:Reverting|Reverted]] ")) | # user revert
       str_starts(editcomment, fixed("[[WP:RBK|Reverted]]")) | # bot revert
       str_starts(editcomment, fixed("[[WP:UNDO|Undid]]")), # bot undo ( aka late revert )
     is_bot = str_starts(editcomment, "\\[\\[WP:"),
-    words = map(str_match_all(editcomment, "\\w+"), as.vector),
-    profanity_search = map(words,
-                      function(l) { 
-                        map_lgl(l, function(w) { bin_search(profanities, w) > 0 } )
+    # tokenize each comment
+    word_lists = map(str_match_all(editcomment, "\\w+"), as.vector),
+    # for each token, check if there is a hit on profanity list
+    profanity_lists = map(word_lists,
+                      function(word_list) {
+                        map_lgl(word_list, function(word) { bin_search(profanities, word) > 0 } )
                       }),
-    has_profanity = map_lgl(profanity_search, function(l) { reduce(l, `|`, .init = FALSE) })
-  )
+    # OR all word checks. if any TRUE, comment has profanity
+    has_profanity = map_lgl(profanity_lists, function(list) { reduce(list, `|`, .init = FALSE) })
+  ) %>%
+  select(-word_lists, -profanity_lists)
+  
 
 
 # figure out most common word additions on vandalism:
@@ -299,14 +264,7 @@ library(tidytext)
 
 # pull random true positive:
 edits %>% filter(class == "vandalism") %>% last()
-revisions %>% filter(revisionid == tp) %>% pull(text)
-
-
-# playground for diff:
-install.packages("diffobj")
-first <- ""
-second <- "abcdefghijk lmno"
-
+revisions %>% filter(revisionid == tp) %>% pull(revisiontext)
 
 
 
