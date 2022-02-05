@@ -168,6 +168,45 @@ character_features <- edits %>%
 
 # load profanities list
 profanities <- read_lines(file = "data/en/profanities.txt")
+pronouns <- read_lines(file = "data/en/pronouns.txt")
+contractions <- read_lines(file = "data/en/contractions.txt")
+superlatives <- read_lines(file = "data/en/superlatives.txt")
+
+#
+# FIXME: looks like we lost a couple rows ( editid 7 & 9 ).
+# Check if this happen on a join above?
+#
+
+word_features <- edits %>%
+  select(editid, additions) %>%
+  mutate(additions_as_string = map_chr(additions, str_c, collapse = "\n")) %>%
+  mutate(
+    word_list = map(str_match_all(additions_as_string, "\\w+"), as.vector),
+    word_list_lower = map(word_list, str_to_lower),
+  ) %>% select(editid, word_list_lower) %>%
+  unnest_longer(col = word_list_lower, values_to = "word") %>%
+  mutate(
+    word = replace_na(word, ""),
+    is_profanity = map_lgl(word, function(w) {
+      bin_search(profanities, w) > 0
+    }),
+    is_pronoun = map_lgl(word, function(w) {
+      bin_search(pronouns, w) > 0
+    }),
+    is_superlative = map_lgl(word, function(w) {
+      bin_search(superlatives, w) > 0
+    }),
+    is_contraction = map_lgl(word, function(w) {
+      bin_search(contractions, w) > 0
+    })
+    # TODO: add top-k vandal words
+  ) %>% group_by(editid) %>%
+  summarise(
+    profanity_count = sum(is_profanity),
+    pronoun_count = sum(is_pronoun),
+    superlative_count = sum(is_superlative),
+    contraction_count = sum(is_contraction)
+  )
 
 # edit comment features
 comment_features <- edits %>%
