@@ -20,7 +20,20 @@ contractions_table %>%
   arrange(Contraction) %>%
   pull(Contraction) %>%
   write_lines(file = "data/en/contractions.txt")
+rm(contractions_html, contractions_table_nodes, contractions_table)
 
+# scrape a list of english superlatives
+superlatives_html <- rvest::read_html("https://www.easypacelearning.com/all-lessons/grammar/1436-comparative-superlative-adjectives-list-from-a-to-z")
+superlatives_table_nodes <- superlatives_html %>% html_nodes("table")
+superlatives_table <- superlatives_table_nodes[[1]] %>% html_table(header = TRUE)
+superlatives_table %>%
+  select(Superlative) %>%
+  mutate(Superlative = str_trim(Superlative)) %>%
+  separate_rows(Superlative, sep = "/") %>%
+  arrange(Superlative) %>%
+  pull(Superlative) %>%
+  write_lines(file = "data/en/superlatives.txt")
+rm(superlatives_html, superlatives_table_nodes, superlatives_table)
 
 # create a list of profanities
 # source: https://github.com/coffee-and-fun/google-profanity-words
@@ -32,6 +45,7 @@ read_csv(
   arrange(word) %>%
   pull(word) %>%
   write_lines(file = "data/en/profanities.txt")
+
 
 # create a list of 1st and 2nd person pronouns
 # source: https://www.ef.edu/english-resources/english-grammar/pronouns/
