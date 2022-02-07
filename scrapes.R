@@ -79,6 +79,11 @@ tibble(
 # 
 tibble(
   word  = c(
+    # wiki links
+    "{{",
+    "}}",
+    "[[",
+    "]]",
     # html pairs
     "b",
     "bdi",

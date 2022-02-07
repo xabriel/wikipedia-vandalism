@@ -166,17 +166,27 @@ character_features <- edits %>%
   ) %>%
   select(-additions, -additions_as_string)
 
-# load profanities list
+# load word dictionaries
 profanities <- read_lines(file = "data/en/profanities.txt")
 pronouns <- read_lines(file = "data/en/pronouns.txt")
 contractions <- read_lines(file = "data/en/contractions.txt")
 superlatives <- read_lines(file = "data/en/superlatives.txt")
+wikisyntax <- read_lines(file = "data/global/wikisyntax.txt")
+
+# This tokenizer regex is wikisyntax aware.
+# This helps as vandals do not typically use wikisyntax.
+# matches:
+# "----" section break
+# indentation markers with ":", "*", "#" or "=".
+# link delimiters with "{{", "}}", "[[" or "]]"
+# any other regular word ( which would also include other wikisyntax )
+wiki_regex <- "----|:{1,6}|\\*{1,4}|#{1,4}|={1,5}|\\{\\{|\\}\\}|\\[\\[|]]|\\w+"
 
 word_features <- edits %>%
   select(editid, additions) %>%
   mutate(additions_as_string = map_chr(additions, str_c, collapse = "\n")) %>%
   mutate(
-    word_list = map(str_match_all(additions_as_string, "\\w+"), as.vector),
+    word_list = map(str_match_all(additions_as_string, wiki_regex), as.vector),
     word_list_lower = map(word_list, str_to_lower),
   ) %>% select(editid, word_list_lower) %>%
   unnest_longer(col = word_list_lower, values_to = "word") %>%
@@ -193,6 +203,9 @@ word_features <- edits %>%
     }),
     is_contraction = map_lgl(word, function(w) {
       bin_search(contractions, w) > 0
+    }),
+    is_wikisyntax = map_lgl(word, function(w) {
+      bin_search(wikisyntax, w) > 0
     })
     # TODO: add top-k vandal words
   ) %>% group_by(editid) %>%
@@ -200,7 +213,8 @@ word_features <- edits %>%
     profanity_count = sum(is_profanity),
     pronoun_count = sum(is_pronoun),
     superlative_count = sum(is_superlative),
-    contraction_count = sum(is_contraction)
+    contraction_count = sum(is_contraction),
+    wikisyntax_count = sum(is_wikisyntax)
   )
 
 # edit comment features
