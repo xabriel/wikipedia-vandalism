@@ -172,11 +172,6 @@ pronouns <- read_lines(file = "data/en/pronouns.txt")
 contractions <- read_lines(file = "data/en/contractions.txt")
 superlatives <- read_lines(file = "data/en/superlatives.txt")
 
-#
-# FIXME: looks like we lost a couple rows ( editid 7 & 9 ).
-# Check if this happen on a join above?
-#
-
 word_features <- edits %>%
   select(editid, additions) %>%
   mutate(additions_as_string = map_chr(additions, str_c, collapse = "\n")) %>%
@@ -272,6 +267,7 @@ common_regular_words <- train %>%
   ) %>%
   anti_join(stop_words) %>%
   # no http words, no wiki words
+  # TODO: fix this up and include it in word_features
   filter(!word %in% c("ref", "http", "span", "br", "align", "cite", "style", "center", "url", "character", "text", "special:contributions", "title")) %>%
   # no numbers
   filter(!str_detect(word, "^\\d+$")) %>%
