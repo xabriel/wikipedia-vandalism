@@ -206,7 +206,8 @@ word_features <- edits %>%
     }),
     is_wikisyntax = map_lgl(word, function(w) {
       bin_search(wikisyntax, w) > 0
-    })
+    }),
+    word_length = str_length(word)
     # TODO: add top-k vandal words
   ) %>% group_by(editid) %>%
   summarise(
@@ -214,7 +215,8 @@ word_features <- edits %>%
     pronoun_count = sum(is_pronoun),
     superlative_count = sum(is_superlative),
     contraction_count = sum(is_contraction),
-    wikisyntax_count = sum(is_wikisyntax)
+    wikisyntax_count = sum(is_wikisyntax),
+    longest_word = max(word_length)
   )
 
 # edit comment features
@@ -241,8 +243,37 @@ comment_features <- edits %>%
     # OR all word checks. if any TRUE, comment has profanity
     has_profanity = map_lgl(profanity_lists, function(list) { reduce(list, `|`, .init = FALSE) })
   ) %>%
-  select(-word_lists, -word_lists_lower, -profanity_lists)
-  
+  select(-editcomment, -word_lists, -word_lists_lower, -profanity_lists)
+
+size_features <- edits %>%
+  select(editid, oldrevisionsize, newrevisionsize, additions, deletions) %>%
+  mutate(
+    size_delta = newrevisionsize - oldrevisionsize,
+    size_ratio = (newrevisionsize + 1) / (oldrevisionsize + 1),
+    num_additions = map_int(additions, length),
+    num_deletions = map_int(deletions, length)
+  ) %>%
+  select(-oldrevisionsize, -newrevisionsize, -additions, -deletions)
+
+ip_address_regex <- "\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}"
+
+editor_features <- edits %>%
+  select(editid, editor, edittime) %>%
+  mutate(is_anonymous = str_detect(editor, ip_address_regex)) %>%
+  # TODO: for anonymous, we can geolocate by id, and check local time
+  select(editid, is_anonymous)
+
+# prepare features as matrix to feed to algos
+all_features <-
+  character_features %>%
+  left_join(word_features, by = "editid") %>%
+  left_join(comment_features, by = "editid") %>%
+  left_join(size_features, by = "editid") %>%
+  left_join(editor_features, by = "editid") %>%
+  select(-editid) %>%
+  as.matrix()
+
+golden_class <- edits %>% pull(class)
 
 #
 # split into train, test, and validation sets
@@ -254,16 +285,56 @@ edits %>% pull(class) %>% table()
 # but createDataPartition takes care of stratifying splits properly.
 set.seed(123, sample.kind="Rounding")
 validation_index <- createDataPartition(y = edits %>% pull(class), times = 1, p = 0.5, list = FALSE)
-validation <- edits[validation_index, ]
-remaining <- edits[-validation_index, ]
+validation <- all_features[validation_index, ]
+validation_class <- golden_class[validation_index]
+train <- all_features[-validation_index, ]
+train_class <- golden_class[-validation_index]
 
-# test set will be 10% of the remaining data
-set.seed(123, sample.kind="Rounding")
-test_index <- createDataPartition(y = remaining %>% pull(class), times = 1, p = 0.1, list = FALSE)
-test <- remaining[test_index, ]
-train <- remaining[-test_index, ]
+# check that we have good features
+nearZeroVar(train, names = T)
+# this yields:
+# [1] "profanity_count"   "pronoun_count"     "superlative_count" "contraction_count" "is_bot"
+# [6] "has_profanity"
+# BUT, note that our classes are very skewed, with vandalism being only ~7%.
 
-rm(remaining, validation_index, test_index)
+control <- trainControl(method = "cv", number = 10, p = .9)
+train_knn <- train(
+  x = train,
+  y = train_class,
+  method = "knn",
+  tuneGrid = data.frame(k = c(3, 5, 7)),
+  trControl = control
+)
+ggplot(train_knn)
+
+
+y_hat_knn <- predict(train_knn, validation, type="raw")
+cm <- confusionMatrix(y_hat_knn, validation_class)
+cm
+varImp(train_knn)
+# knn is ok, with 140 false positives.
+
+
+# library(randomForest)
+control <- trainControl(method = "cv", number = 5)
+grid <- data.frame(mtry = c(1, 5, 10, 25, 50, 100))
+
+train_rf <-  train(
+  x = train,
+  y = train_class,
+  method = "rf",
+  ntree = 150,
+  trControl = control,
+  tuneGrid = grid,
+  nSamp = 5000
+)
+ggplot(train_rf)
+
+
+y_hat_rf <- predict(train_rf, validation, type="raw")
+cm_rf <- confusionMatrix(y_hat_rf, validation_class)
+cm_rf
+varImp(train_rf)
 
 
 # figure out most common word additions on vandalism:
@@ -334,7 +405,7 @@ lm <- caret::train(
 )
 
 
-ip_address_regex <- "\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}"
+
 # of vandalism, how many are anonymous?
 # FALSE  TRUE 
 # 313  2081
