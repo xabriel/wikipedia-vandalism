@@ -4,9 +4,16 @@
 
 if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
 if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(doParallel)) install.packages("doParallel", repos = "http://cran.us.r-project.org")
+if(!require(MLmetrics)) install.packages("MLmetrics", repos = "http://cran.us.r-project.org")
+if(!require(yardstick)) install.packages("yardstick", repos = "http://cran.us.r-project.org")
+
 
 library(tidyverse)
 library(caret)
+library(doParallel)
+library(MLmetrics)
+library(yardstick)
 
 # load up helper functions
 source("functions.R")
@@ -315,19 +322,38 @@ varImp(train_knn)
 # knn is ok, with 140 false positives.
 
 
-# library(randomForest)
-control <- trainControl(method = "cv", number = 5)
-grid <- data.frame(mtry = c(1, 5, 10, 25, 50, 100))
 
+library(doParallel)
+cores <- coalesce(detectCores() - 1, 1)
+cl <- makePSOCKcluster(cores)
+registerDoParallel(cl)
+
+# use summaryFunction = prSummary to fit based on PR-AUC
+# FIXME: prSummary failed, try twoClassSummary ?
+# twoClass failed as well, check for NA's!!
+# 
+# We dont seem to have NAs....
+# 
+control <- trainControl(method = "cv",
+                        number = 10,
+                        summaryFunction = prSummary,
+                        allowParallel = TRUE)
+grid <- data.frame(mtry = c(1, 2, 3, 4, 5, 10, 25, 50, 100))
+
+set.seed(123, sample.kind="Rounding")
 train_rf <-  train(
   x = train,
   y = train_class,
   method = "rf",
-  ntree = 150,
+  ntree = 1000, # try with 1000
   trControl = control,
   tuneGrid = grid,
-  nSamp = 5000
+  metric = "F", # use F1 since PR-AUC is returning NAs :(
+  maximize = TRUE
 )
+
+stopCluster(cl)
+
 ggplot(train_rf)
 
 
@@ -336,9 +362,35 @@ cm_rf <- confusionMatrix(y_hat_rf, validation_class)
 cm_rf
 varImp(train_rf)
 
+y_hat_rf_prob <- predict(train_rf, validation, type="prob")
+
+# PR-AUC of 0.5795794 gets us second only to [MolaVelasco]'s 0.66522.
+prauc <- MLmetrics::PRAUC(y_hat_rf_prob["vandalism"], if_else(validation_class == "vandalism", 1L, 0L))
+# ROC-AUC of 0.9164979 gets us also secon only to [MolaVelasco]'s 0.92236
+rocauc <- MLmetrics::AUC(y_hat_rf_prob["vandalism"], if_else(validation_class == "vandalism", 1L, 0L))
+
+results_rf <- tibble(
+  truth = validation_class,
+  vandalism = y_hat_rf_prob %>% pull(vandalism),
+  regular = y_hat_rf_prob %>% pull(regular),
+  predicted = y_hat_rf
+)
+
+# ROC AUC curve
+results_rf %>%
+  roc_curve(truth, vandalism) %>%
+  autoplot()
+
+# yardstick says PR AUC is 0.625.
+results_rf %>%
+  pr_auc(truth, vandalism)
+
+results_rf %>%
+  pr_curve(truth, vandalism) %>%
+  autoplot()
+
 
 # figure out most common word additions on vandalism:
-
 common_regular_words <- train %>%
   mutate(cat_additions = paste(additions, sep = " ")) %>%
   select(editid, class, cat_additions) %>%
