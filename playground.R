@@ -168,8 +168,8 @@ character_features <- edits %>%
   # gzip chosen for its speed (https://cran.r-project.org/web/packages/brotli/vignettes/benchmarks.html)
   mutate(
     compression_ratio =
-      (map_int(additions_as_string, function(s) { length(memCompress(s, type = "gzip")) }) + 1) /
-      (map_int(additions_as_string, function(s) { length(as.raw(s)) }) + 1)
+      (map_int(additions_as_string, function(s) { length(as.raw(s)) }) + 1) /
+      (map_int(additions_as_string, function(s) { length(memCompress(s, type = "gzip")) }) + 1)
   ) %>%
   select(-additions, -additions_as_string)
 
@@ -181,7 +181,6 @@ superlatives <- read_lines(file = "data/en/superlatives.txt")
 wikisyntax <- read_lines(file = "data/global/wikisyntax.txt")
 
 # This tokenizer regex is wikisyntax aware.
-# This helps as vandals do not typically use wikisyntax.
 # matches:
 # "----" section break
 # indentation markers with ":", "*", "#" or "=".
@@ -270,6 +269,29 @@ editor_features <- edits %>%
   # TODO: for anonymous, we can geolocate by id, and check local time
   select(editid, is_anonymous)
 
+# let's do some descriptive analytics
+
+edits %>%
+  select(editid, class) %>%
+  left_join(character_features, by = "editid") %>%
+  left_join(word_features, by = "editid") %>%
+  left_join(comment_features, by = "editid") %>%
+  left_join(size_features, by = "editid") %>%
+  left_join(editor_features, by = "editid") %>%
+  mutate_at(3:24, scales::rescale, to=c(1,2)) %>% # data is not normal, so scale to fit [0,1]
+  pivot_longer(cols = 3:24, names_to = "feature_name", values_to = "feature_value") %>%
+  ggplot(aes(x = "", y = feature_value, color = class)) +
+  geom_boxplot() +
+  scale_y_log10() +
+  facet_wrap(~feature_name)
+
+edits %>%
+  select(editid, class) %>%
+  left_join(character_features, by = "editid") %>%
+  ggplot(aes(sample = char_diversity, color = class)) +
+  stat_qq() +
+  stat_qq_line()
+
 # prepare features as matrix to feed to algos
 all_features <-
   character_features %>%
@@ -279,6 +301,7 @@ all_features <-
   left_join(editor_features, by = "editid") %>%
   select(-editid) %>%
   as.matrix()
+
 
 golden_class <- edits %>% pull(class)
 
