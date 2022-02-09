@@ -294,6 +294,7 @@ set.seed(123, sample.kind="Rounding")
 validation_index <- createDataPartition(y = edits %>% pull(class), times = 1, p = 0.5, list = FALSE)
 validation <- all_features[validation_index, ]
 validation_class <- golden_class[validation_index]
+validation_edits <- edits[validation_index,]
 train <- all_features[-validation_index, ]
 train_class <- golden_class[-validation_index]
 
@@ -370,6 +371,7 @@ prauc <- MLmetrics::PRAUC(y_hat_rf_prob["vandalism"], if_else(validation_class =
 rocauc <- MLmetrics::AUC(y_hat_rf_prob["vandalism"], if_else(validation_class == "vandalism", 1L, 0L))
 
 results_rf <- tibble(
+  index = 1:length(validation_class),
   truth = validation_class,
   vandalism = y_hat_rf_prob %>% pull(vandalism),
   regular = y_hat_rf_prob %>% pull(regular),
@@ -381,13 +383,27 @@ results_rf %>%
   roc_curve(truth, vandalism) %>%
   autoplot()
 
-# yardstick says PR AUC is 0.625.
+# yardstick says PR-AUC is 0.625.
 results_rf %>%
   pr_auc(truth, vandalism)
 
 results_rf %>%
   pr_curve(truth, vandalism) %>%
   autoplot()
+
+# let's take a look at the FP and FN, see if we can get insights on why we are failing
+false_negatives_rf <- results_rf %>%
+  filter(truth != predicted) %>%
+  filter(truth == "vandalism")
+
+false_positives_rf <- results_rf %>%
+  filter(truth != predicted) %>%
+  filter(truth == "regular")
+
+View(false_positives_rf)
+
+View(validation_edits[false_positives_rf$index,])
+
 
 
 # figure out most common word additions on vandalism:
