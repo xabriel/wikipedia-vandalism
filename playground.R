@@ -399,7 +399,7 @@ train_knn <- train(
 ggplot(train_knn)
 
 
-y_hat_knn <- predict(train_knn, validation, type="raw")
+y_hat_knn <- predict(train_knn, validation_features, type="raw")
 cm <- confusionMatrix(y_hat_knn, validation_class)
 cm
 varImp(train_knn)
@@ -441,16 +441,16 @@ stopCluster(cl)
 ggplot(train_rf)
 
 
-y_hat_rf <- predict(train_rf, validation, type="raw")
+y_hat_rf <- predict(train_rf, validation_features, type="raw")
 cm_rf <- confusionMatrix(y_hat_rf, validation_class)
 cm_rf
 varImp(train_rf)
 
-y_hat_rf_prob <- predict(train_rf, validation, type="prob")
+y_hat_rf_prob <- predict(train_rf, validation_features, type="prob")
 
-# PR-AUC of 0.5795794 gets us second only to [MolaVelasco]'s 0.66522.
+# PR-AUC of 0.6230123 gets us second only to [MolaVelasco]'s 0.66522.
 prauc <- MLmetrics::PRAUC(y_hat_rf_prob["vandalism"], if_else(validation_class == "vandalism", 1L, 0L))
-# ROC-AUC of 0.9164979 gets us also secon only to [MolaVelasco]'s 0.92236
+# ROC-AUC of 0.920313 gets us also second only to [MolaVelasco]'s 0.92236
 rocauc <- MLmetrics::AUC(y_hat_rf_prob["vandalism"], if_else(validation_class == "vandalism", 1L, 0L))
 
 results_rf <- tibble(
@@ -466,7 +466,7 @@ results_rf %>%
   roc_curve(truth, vandalism) %>%
   autoplot()
 
-# yardstick says PR-AUC is 0.625.
+# yardstick says PR-AUC is 0.624.
 results_rf %>%
   pr_auc(truth, vandalism)
 
