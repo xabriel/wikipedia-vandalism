@@ -8,16 +8,12 @@ if(!require(doParallel)) install.packages("doParallel", repos = "http://cran.us.
 if(!require(MLmetrics)) install.packages("MLmetrics", repos = "http://cran.us.r-project.org")
 if(!require(yardstick)) install.packages("yardstick", repos = "http://cran.us.r-project.org")
 
-if(!require(fastAdaboost)) install.packages("fastAdaboost", repos = "http://cran.us.r-project.org")
-
 
 library(tidyverse)
 library(caret)
 library(doParallel)
 library(MLmetrics)
 library(yardstick)
-
-library(fastAdaboost)
 
 # load up helper functions
 source("functions.R")
@@ -311,6 +307,7 @@ all_features <-
   select(-editid) %>%
   as.matrix()
 
+
 golden_class <- edits %>% pull(class)
 
 #
@@ -328,7 +325,6 @@ validation_class <- golden_class[validation_index]
 validation_edits <- edits[validation_index,]
 train <- all_features[-validation_index, ]
 train_class <- golden_class[-validation_index]
-train_edits <- edits[-validation_index,]
 
 # check that we have good features
 nearZeroVar(train, names = T)
@@ -343,7 +339,7 @@ train_knn <- train(
   y = train_class,
   method = "knn",
   tuneGrid = data.frame(k = c(3, 5, 7)),
-  trControl = control,
+  trControl = control
 )
 ggplot(train_knn)
 
@@ -371,9 +367,8 @@ control <- trainControl(method = "cv",
                         number = 10,
                         summaryFunction = prSummary,
                         allowParallel = TRUE)
-grid <- data.frame(mtry = c(25))
+grid <- data.frame(mtry = c(1, 2, 3, 4, 5, 10, 25, 50, 100))
 
-# centering and scaling gives marginal improvement at mtry = 25
 set.seed(123, sample.kind="Rounding")
 train_rf <-  train(
   x = train,
@@ -383,52 +378,7 @@ train_rf <-  train(
   trControl = control,
   tuneGrid = grid,
   metric = "F", # use F1 since PR-AUC is returning NAs :(
-  maximize = TRUE,
-  preProcess = c("range"),
-  rangeBounds = c(1,2)
-)
-
-# svmLinear is pretty bad with best F-score of 0.3037179
-svm_grid <- data.frame(C = seq(0,10, 0.5))
-set.seed(123, sample.kind="Rounding")
-train_svm <-  train(
-  x = train,
-  y = train_class,
-  method = "svmLinear",
-  trControl = control,
-  tuneGrid = svm_grid,
-  metric = "F", # use F1 since PR-AUC is returning NAs :(
-  maximize = TRUE,
-  preProcess = c("center","scale")
-)
-
-# very weak as well.
-svm_radial_grid <- expand.grid(C = 1, sigma = seq(0,5,1))
-set.seed(123, sample.kind="Rounding")
-train_svm_radial <-  train(
-  x = train,
-  y = train_class,
-  method = "svmRadial",
-  trControl = control,
-  tuneGrid = svm_radial_grid,
-  metric = "F", # use F1 since PR-AUC is returning NAs :(
-  maximize = TRUE,
-  preProcess = c("center","scale")
-)
-
-
-# bad as well with F = 0.3777015
-adaboost_grid <- expand.grid(nIter = c(100, 500, 1000), method = "real")
-set.seed(123, sample.kind="Rounding")
-train_adaboost <-  train(
-  x = train,
-  y = train_class,
-  method = "adaboost",
-  trControl = control,
-  tuneGrid = adaboost_grid,
-  metric = "F", # use F1 since PR-AUC is returning NAs :(
-  maximize = TRUE,
-  # preProcess = c("center","scale")
+  maximize = TRUE
 )
 
 stopCluster(cl)
