@@ -7,6 +7,7 @@ if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.
 if(!require(doParallel)) install.packages("doParallel", repos = "http://cran.us.r-project.org")
 if(!require(MLmetrics)) install.packages("MLmetrics", repos = "http://cran.us.r-project.org")
 if(!require(yardstick)) install.packages("yardstick", repos = "http://cran.us.r-project.org")
+if(!require(tidytext)) install.packages("tidytext", repos = "http://cran.us.r-project.org")
 
 
 library(tidyverse)
@@ -14,6 +15,7 @@ library(caret)
 library(doParallel)
 library(MLmetrics)
 library(yardstick)
+library(tidytext)
 
 # load up helper functions
 source("functions.R")
@@ -173,6 +175,19 @@ character_features <- edits %>%
   ) %>%
   select(-additions, -additions_as_string)
 
+# next set of "word features" will use a list of common vandalism words, so let's do
+# data set split now as to not overtrain.
+# 
+# validation set will be 50% of source data, to be comparable to [Potthast 2010].
+# 
+# Note that our classes are imbalanced:
+edits %>% pull(class) %>% table()
+# but createDataPartition takes care of stratifying splits properly.
+set.seed(123, sample.kind="Rounding")
+validation_index <- createDataPartition(y = edits %>% pull(class), times = 1, p = 0.5, list = FALSE)
+validation_edits <- edits[validation_index,]
+train_edits <- edits[-validation_index,]
+
 # load word dictionaries
 profanities <- read_lines(file = "data/en/profanities.txt")
 pronouns <- read_lines(file = "data/en/pronouns.txt")
@@ -187,6 +202,43 @@ wikisyntax <- read_lines(file = "data/global/wikisyntax.txt")
 # link delimiters with "{{", "}}", "[[" or "]]"
 # any other regular word ( which would also include other wikisyntax )
 wiki_regex <- "----|:{1,6}|\\*{1,4}|#{1,4}|={1,5}|\\{\\{|\\}\\}|\\[\\[|]]|\\w+"
+
+
+# figure out most common words, but use only train_edits as to not overtrain
+common_words <- train_edits %>%
+  mutate(additions_as_string = map_chr(additions, str_c, collapse = "\n")) %>%
+  mutate(
+    word_list = map(str_match_all(additions_as_string, wiki_regex), as.vector),
+    word_list_lower = map(word_list, str_to_lower),
+  ) %>% select(editid, class, word_list_lower) %>%
+  unnest_longer(col = word_list_lower, values_to = "word") %>%
+  anti_join(stop_words) %>%
+  filter(!word %in% wikisyntax) %>%
+  filter(!str_detect(word, "^\\d+$")) %>% # no numbers
+  group_by(class, word) %>%
+  summarise(n = n()) %>%
+  arrange(desc(n))
+
+common_vandalism_words <- common_words %>%
+  filter(class == "vandalism") %>%
+  slice_head(n = 200)
+
+common_regular_words <- common_words %>%
+  filter(class == "regular") %>%
+  slice_head(n = 200)
+
+intersection_words <- common_vandalism_words %>%
+  inner_join(common_regular_words, by = "word")
+
+common_vandalism_words <- common_vandalism_words %>%
+  anti_join(intersection_words, by = "word") %>%
+  arrange(word) %>%
+  pull(word)
+
+common_regular_words <- common_regular_words %>%
+  anti_join(intersection_words, by = "word") %>%
+  arrange(word) %>%
+  pull(word)
 
 word_features <- edits %>%
   select(editid, additions) %>%
@@ -213,8 +265,13 @@ word_features <- edits %>%
     is_wikisyntax = map_lgl(word, function(w) {
       bin_search(wikisyntax, w) > 0
     }),
+    is_common_vandalism = map_lgl(word, function(w) {
+      bin_search(common_vandalism_words, w) > 0
+    }),
+    is_common_regular = map_lgl(word, function(w) {
+      bin_search(common_regular_words, w) > 0
+    }),
     word_length = str_length(word)
-    # TODO: add top-k vandal words
   ) %>% group_by(editid) %>%
   summarise(
     profanity_count = sum(is_profanity),
@@ -222,6 +279,8 @@ word_features <- edits %>%
     superlative_count = sum(is_superlative),
     contraction_count = sum(is_contraction),
     wikisyntax_count = sum(is_wikisyntax),
+    common_vandalism_count = sum(is_common_vandalism),
+    common_regular_count = sum(is_common_regular),
     longest_word = max(word_length)
   )
 
@@ -229,15 +288,15 @@ word_features <- edits %>%
 comment_features <- edits %>%
   select(editid, editcomment) %>%
   mutate(
-    has_comment = !editcomment == "null" | is.na(editcomment),
-    comment_length = if_else(has_comment, str_length(editcomment), 0L),
-    is_revert =
+    comment_exists = !editcomment == "null" | is.na(editcomment),
+    comment_length = if_else(comment_exists, str_length(editcomment), 0L),
+    comment_is_revert =
       str_starts(editcomment, fixed("Revert")) | # user revert
       str_starts(editcomment, fixed("revert")) | # user revert
       str_starts(editcomment, fixed("[[Help:Reverting|Reverted]] ")) | # user revert
       str_starts(editcomment, fixed("[[WP:RBK|Reverted]]")) | # bot revert
       str_starts(editcomment, fixed("[[WP:UNDO|Undid]]")), # bot undo ( aka late revert )
-    is_bot = str_starts(editcomment, "\\[\\[WP:"),
+    comment_is_bot = str_starts(editcomment, "\\[\\[WP:"),
     # tokenize each comment
     word_lists = map(str_match_all(editcomment, "\\w+"), as.vector),
     word_lists_lower = map(word_lists, str_to_lower),
@@ -247,7 +306,7 @@ comment_features <- edits %>%
                         map_lgl(word_list_lower, function(word) { bin_search(profanities, word) > 0 } )
                       }),
     # OR all word checks. if any TRUE, comment has profanity
-    has_profanity = map_lgl(profanity_lists, function(list) { reduce(list, `|`, .init = FALSE) })
+    comment_has_profanity = map_lgl(profanity_lists, function(list) { reduce(list, `|`, .init = FALSE) })
   ) %>%
   select(-editcomment, -word_lists, -word_lists_lower, -profanity_lists)
 
@@ -314,28 +373,24 @@ golden_class <- edits %>% pull(class)
 # split into train, test, and validation sets
 #
 
-# validation set will be 50% of source data, to be comparable to [Potthast 2010]
-# Note that our classes are imbalanced:
-edits %>% pull(class) %>% table()
-# but createDataPartition takes care of stratifying splits properly.
-set.seed(123, sample.kind="Rounding")
-validation_index <- createDataPartition(y = edits %>% pull(class), times = 1, p = 0.5, list = FALSE)
-validation <- all_features[validation_index, ]
+validation_features <- all_features[validation_index, ]
 validation_class <- golden_class[validation_index]
 validation_edits <- edits[validation_index,]
-train <- all_features[-validation_index, ]
+train_features <- all_features[-validation_index, ]
 train_class <- golden_class[-validation_index]
+train_edits <- edits[-validation_index,]
+
 
 # check that we have good features
-nearZeroVar(train, names = T)
+nearZeroVar(train_features, names = T)
 # this yields:
-# [1] "profanity_count"   "pronoun_count"     "superlative_count" "contraction_count" "is_bot"
-# [6] "has_profanity"
+# [1] "profanity_count"       "pronoun_count"         "superlative_count"     "contraction_count"
+# [5] "comment_is_bot"        "comment_has_profanity"
 # BUT, note that our classes are very skewed, with vandalism being only ~7%.
 
 control <- trainControl(method = "cv", number = 10, p = .9)
 train_knn <- train(
-  x = train,
+  x = train_features,
   y = train_class,
   method = "knn",
   tuneGrid = data.frame(k = c(3, 5, 7)),
@@ -371,7 +426,7 @@ grid <- data.frame(mtry = c(1, 2, 3, 4, 5, 10, 25, 50, 100))
 
 set.seed(123, sample.kind="Rounding")
 train_rf <-  train(
-  x = train,
+  x = train_features,
   y = train_class,
   method = "rf",
   ntree = 1000, # try with 1000
@@ -431,56 +486,6 @@ false_positives_rf <- results_rf %>%
 View(false_positives_rf)
 
 View(validation_edits[false_positives_rf$index,])
-
-
-
-# figure out most common word additions on vandalism:
-common_regular_words <- train %>%
-  mutate(cat_additions = paste(additions, sep = " ")) %>%
-  select(editid, class, cat_additions) %>%
-  unnest_tokens(
-    output = "word",
-    input = "cat_additions",
-    drop = TRUE,
-    token = "words",
-    to_lower = TRUE,
-    format = "text"
-  ) %>%
-  anti_join(stop_words) %>%
-  # no http words, no wiki words
-  # TODO: fix this up and include it in word_features
-  filter(!word %in% c("ref", "http", "span", "br", "align", "cite", "style", "center", "url", "character", "text", "special:contributions", "title")) %>%
-  # no numbers
-  filter(!str_detect(word, "^\\d+$")) %>%
-  group_by(class, word) %>%
-  summarise(n = n()) %>%
-  filter(class == "regular") %>%
-  arrange(desc(n))
-
-common_vandalism_words <- train %>%
-  mutate(cat_additions = paste(additions, sep = " ")) %>%
-  select(editid, class, cat_additions) %>%
-  unnest_tokens(
-    output = "word",
-    input = "cat_additions",
-    drop = TRUE,
-    token = "words",
-    to_lower = TRUE,
-    format = "text"
-  ) %>%
-  anti_join(stop_words) %>%
-  # no http words, no wiki words
-  filter(!word %in% c("ref", "http", "span", "br", "align", "cite", "style", "center", "url", "character", "text", "special:contributions", "title")) %>%
-  # no numbers
-  filter(!str_detect(word, "^\\d+$")) %>%
-  group_by(class, word) %>%
-  summarise(n = n()) %>%
-  filter(class == "vandalism") %>%
-  arrange(desc(n)) %>%
-  slice_head(n = 100)
-
-library(tidytext)  
-
 
 # pull random true positive:
 edits %>% filter(class == "vandalism") %>% last()
