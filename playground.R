@@ -269,6 +269,11 @@ editor_features <- edits %>%
   # TODO: for anonymous, we can geolocate by id, and check local time
   select(editid, is_anonymous)
 
+#
+# save pristine here
+#
+
+
 # let's do some descriptive analytics
 
 edits %>%
