@@ -412,15 +412,10 @@ cores <- coalesce(detectCores() - 1, 1)
 cl <- makePSOCKcluster(cores)
 registerDoParallel(cl)
 
-# use summaryFunction = prSummary to fit based on PR-AUC
-# FIXME: prSummary failed, try twoClassSummary ?
-# twoClass failed as well, check for NA's!!
-# 
-# We dont seem to have NAs....
-# 
 control <- trainControl(method = "cv",
                         number = 10,
                         summaryFunction = prSummary,
+                        classProbs = TRUE, # this makes AUC calculation work
                         allowParallel = TRUE)
 grid <- data.frame(mtry = c(1, 2, 3, 4, 5, 10, 25, 50, 100))
 
