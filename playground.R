@@ -8,7 +8,8 @@ if(!require(doParallel)) install.packages("doParallel", repos = "http://cran.us.
 if(!require(MLmetrics)) install.packages("MLmetrics", repos = "http://cran.us.r-project.org")
 if(!require(yardstick)) install.packages("yardstick", repos = "http://cran.us.r-project.org")
 if(!require(tidytext)) install.packages("tidytext", repos = "http://cran.us.r-project.org")
-
+if(!require(naivebayes)) install.packages("tidytext", repos = "http://cran.us.r-project.org")
+if(!require(nnet)) install.packages("nnet", repos = "http://cran.us.r-project.org")
 
 library(tidyverse)
 library(caret)
@@ -16,6 +17,8 @@ library(doParallel)
 library(MLmetrics)
 library(yardstick)
 library(tidytext)
+library(naivebayes)
+library(nnet)
 
 # load up helper functions
 source("functions.R")
@@ -344,9 +347,9 @@ edits %>%
   left_join(editor_features, by = "editid") %>%
   mutate_at(3:24, scales::rescale, to=c(1,2)) %>% # data is not normal, so scale to fit [0,1]
   pivot_longer(cols = 3:24, names_to = "feature_name", values_to = "feature_value") %>%
-  ggplot(aes(x = "", y = feature_value, color = class)) +
-  geom_boxplot() +
-  scale_y_log10() +
+  ggplot(aes(x = feature_value, color = class)) +
+  geom_histogram() +
+  scale_x_log10() +
   facet_wrap(~feature_name)
 
 edits %>%
@@ -388,14 +391,8 @@ nearZeroVar(train_features, names = T)
 # [5] "comment_is_bot"        "comment_has_profanity"
 # BUT, note that our classes are very skewed, with vandalism being only ~7%.
 
-control <- trainControl(method = "cv", number = 10, p = .9)
-train_knn <- train(
-  x = train_features,
-  y = train_class,
-  method = "knn",
-  tuneGrid = data.frame(k = c(3, 5, 7)),
-  trControl = control
-)
+
+
 ggplot(train_knn)
 
 
@@ -417,8 +414,24 @@ control <- trainControl(method = "cv",
                         summaryFunction = prSummary,
                         classProbs = TRUE, # this makes AUC calculation work
                         allowParallel = TRUE)
-grid <- data.frame(mtry = c(1, 2, 3, 4, 5, 10, 25, 50, 100))
 
+#
+# kNN
+#
+set.seed(123, sample.kind="Rounding")
+train_knn <- train(
+  x = train_features,
+  y = train_class,
+  method = "knn",
+  trControl = control,
+  tuneGrid = data.frame(k = c(3, 5, 7, 9, 11)),
+  metric = "AUC", # PR-AUC
+  maximize = TRUE
+)
+
+#
+# Random Forest
+#
 set.seed(123, sample.kind="Rounding")
 train_rf <-  train(
   x = train_features,
@@ -426,10 +439,43 @@ train_rf <-  train(
   method = "rf",
   ntree = 1000, # try with 1000
   trControl = control,
-  tuneGrid = grid,
-  metric = "F", # use F1 since PR-AUC is returning NAs :(
+  tuneGrid = data.frame(mtry = c(1, 2, 3, 4, 5, 10, 25, 50, 100)),
+  metric = "AUC", # PR-AUC
   maximize = TRUE
 )
+
+#
+# Naive Bayes
+#
+#
+  
+set.seed(123, sample.kind="Rounding")
+train_bayes <-  train(
+  x = train_features,
+  y = train_class,
+  method = "naive_bayes",
+  trControl = control,
+  tuneGrid = expand.grid(laplace = 0, usekernel = TRUE, adjust = FALSE),
+  metric = "AUC", # PR-AUC
+  maximize = TRUE
+)
+
+#
+# Neural Network
+# 
+set.seed(123, sample.kind="Rounding")
+train_neural <-  train(
+  x = train_features,
+  y = train_class,
+  method = "nnet",
+  trControl = control,
+  tuneGrid = expand.grid(size = seq(1,100,10), decay = seq(0, 1, 0.1)),
+  metric = "AUC", # PR-AUC
+  maximize = TRUE
+)
+
+
+# let's also try oblique random forests
 
 stopCluster(cl)
 
