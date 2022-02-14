@@ -1,0 +1,52 @@
+---
+title: "Predicting Vandalism on Wikipedia"
+author: "Xabriel J Collazo Mojica"
+date: "2/14/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+(An introduction/overview/executive summary section that describes the dataset and variables, and summarizes the goal of the project and key steps that were performed.)
+
+Wikipedia is a free online encyclopedia that is written and maintained by volunteers. Anyone with internet access can edit Wikipedia. This model has enabled Wikipedia to grow steadily since its inception in 2001 to its current 58 million articles in 325 languages. As of November 2020, Wikipedia is edited 17 million times per month (1.9 edits per second) [Wikipedia].
+
+Most of the edits are bona fide contributions. However, about 7% of them are vandalism. Wikipedia defines vandalism as "any change or edit that manipulates content in a way that deliberately compromises Wikipedia's integrity" [Wikipedia]. Vandalism examples include adding out of context profanity, nonsensical additions, removing content without a reason, and adding plausible but false content.
+
+Wikipedia vandalism is handled with manual and automated approaches. In manual approaches, vandalism is removed by the same community of contributors. In severe cases, where vandalism occurs constantly for a particular entry, administrators may enable edit restrictions. Both of these manual approaches slow down the rate of quality contributions since time has to be diverted to clean up the existing content.
+
+In automated approaches, bots (automated software) have been implemented to detect and correct vandalism. The first wave of bots used heuristics and regular expressions to detect potential vandalism. Later, more sophisticated approaches such as the ClueBot NG bot, where implemented that extend the work to use machine learning techniques [Vandalism]. ClueBot NG catches about 40% of vandalism with its current setting of maximum 0.1% false positive rate [ClueBotNG]. This is the current state of the work.
+
+There has been considerate work done to improve automated detection [couple cites here]. One of the most interesting approaches is that of [Potthast2010], in which a competition was held to encourage contributions to the state of the art. In this work, we utilize the same dataset as in their work to implemented a binary classifier (Vandalism or Regular edit). We evaluate our solution by comparing it against the top submissions to their competition.
+
+The dataset is named the PAN Wikipedia Vandalism Corpus 2010. It consists of 32,452 edits on 28,468 English Wikipedia articles, among which 2,391 vandalism edits have been identified [Corpus]. The dataset reflects the same rate of vandalism as regular Wikipedia at 7.3%.
+
+(describe dataset)
+
+(describe wrangling)
+
+
+## Methods and Analysis
+
+(A methods/analysis section that explains the process and techniques used, including data cleaning, data exploration and visualization, any insights gained, and your modeling approach. At least two different models or algorithms must be used, with at least one being more advanced than linear or logistic regression for prediction problems. )
+
+## Results
+(A results section that presents the modeling results and discusses the model performance.)
+
+## Conclusion
+(A conclusion section that gives a brief summary of the report, its potential impact, its limitations, and future work. )
+
+## Citations
+
+[Wikipedia] Wikipedia contributors, "Wikipedia," Wikipedia, The Free Encyclopedia, https://en.wikipedia.org/w/index.php?title=Wikipedia&oldid=1071043064 (accessed February 14, 2022).
+
+[Vandalism] Wikipedia contributors, "Vandalism on Wikipedia," Wikipedia, The Free Encyclopedia, https://en.wikipedia.org/w/index.php?title=Vandalism_on_Wikipedia&oldid=1069412446 (accessed February 14, 2022).
+
+[Corpus] Webis Group, "Webis Data PAN-WVC-10," https://webis.de/data/pan-wvc-10.html (accessed February 14, 2022).
+
+[ClueBotNG] Wikipedia contributors, "User:ClueBot NG," Wikipedia, The Free Encyclopedia, https://en.wikipedia.org/w/index.php?title=User:ClueBot_NG&oldid=391868393 (accessed February 14, 2022).
+
