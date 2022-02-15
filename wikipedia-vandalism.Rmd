@@ -3,6 +3,9 @@ title: "Predicting Vandalism on Wikipedia"
 author: "Xabriel J Collazo Mojica"
 date: "2/14/2022"
 output: html_document
+bibliography: references.bib
+csl: journal-of-the-acm.csl
+link-citations: true
 ---
 
 ```{r setup, include=FALSE}
@@ -13,23 +16,23 @@ knitr::opts_chunk$set(echo = TRUE)
 
 (An introduction/overview/executive summary section that describes the dataset and variables, and summarizes the goal of the project and key steps that were performed.)
 
-Wikipedia is a free online encyclopedia that is written and maintained by volunteers. Anyone with internet access can edit Wikipedia. This model has enabled Wikipedia to grow steadily since its inception in 2001 to its current 58 million articles in 325 languages. As of November 2020, Wikipedia is edited 17 million times per month (1.9 edits per second) [Wikipedia].
+Wikipedia is a free online encyclopedia that is written and maintained by volunteers. Anyone with internet access can edit Wikipedia. This model has enabled Wikipedia to grow steadily since its inception in 2001 to its current 58 million articles in 325 languages. As of November 2020, Wikipedia is edited 17 million times per month (1.9 edits per second) @Wiki-Wikipedia.
 
-Most of the edits are bona fide contributions. However, about 7% of them are vandalism. Wikipedia defines vandalism as "any change or edit that manipulates content in a way that deliberately compromises Wikipedia's integrity" [Wikipedia]. Vandalism examples include adding out of context profanity, nonsensical additions, removing content without a reason, and adding plausible but false content.
+Most of the edits are bona fide contributions. However, about 7% of them are vandalism. Wikipedia defines vandalism as "any change or edit that manipulates content in a way that deliberately compromises Wikipedia's integrity" @Wiki-Vandalism. Vandalism examples include adding out of context profanity, nonsensical additions, removing content without a reason, and adding plausible but false content.
 
 Wikipedia vandalism is handled with manual and automated approaches. In manual approaches, vandalism is removed by the same community of contributors. In severe cases, where vandalism occurs constantly for a particular entry, administrators may enable edit restrictions. Both of these manual approaches slow down the rate of quality contributions since time has to be diverted to clean up existing content.
 
-In automated approaches, software bots have been implemented to detect and correct vandalism. The first iteration of bots used heuristics and regular expressions to detect potential vandalism. The second iteration utilizes more sophisticated approaches. As an example, the ClueBot NG bot uses Naive Bayes and Neural Networks [ClueBotNG]. It catches about 40% of vandalism with its current setting of maximum 0.1% false positive rate [ClueBotNG]. This is the current state of the work.
+In automated approaches, software bots have been implemented to detect and correct vandalism. The first iteration of bots used heuristics and regular expressions to detect potential vandalism. The second iteration utilizes more sophisticated approaches. As an example, the ClueBot NG bot uses Naive Bayes and Neural Networks @Wiki-User-ClueBotNG. It catches about 40% of vandalism with its current setting of maximum 0.1% false positive rate @Wiki-User-ClueBotNG. This is the current state of the work.
 
-There has been considerate work done to improve detection [couple cites here]. One of the most interesting approaches is that of [Potthast2010], in which a competition was held to encourage contributions to the state of the art. In this work, we utilize the same dataset as in their work to implemented a binary classifier. We evaluate our solution by comparing it against the top submissions to their competition.
+There has been considerate work done to improve detection [couple cites here]. One of the most interesting approaches is that of @Potthast-2010, in which a competition was held to encourage contributions to the state of the art. In this work, we utilize the same dataset as in their work to implemented a binary classifier. We evaluate our solution by comparing it against the top submissions to their competition.
 
-The dataset is named the PAN Wikipedia Vandalism Corpus 2010. It consists of 32,452 edits on 28,468 English Wikipedia articles, among which 2,391 vandalism edits have been identified [Corpus]. This reflects the same rate of vandalism as Wikipedia at 7.3%.
+The dataset is named the PAN Wikipedia Vandalism Corpus 2010. It consists of 32,452 edits on 28,468 English Wikipedia articles, among which 2,391 vandalism edits have been identified @Wiki-Corpus-2010. It reflects the same rate of vandalism as Wikipedia at 7.3%.
 
 The dataset consists of multiple files with metadata about the edits such as a unique identifier, the author of the edit, whether the edit is considered vandalism, among others. It also includes the actual content of the edited article before and after the edit, and thus we can use existing textual difference algorithm to find the actual changes. We discuss the dataset and transformations in more details in the Methods and Analysis section.
 
-Given our problem to solve is an imbalanced binary classification, existing literature suggest that an appropriate method to measure performance is with Precision Recall curves [Potthast2010]. This method allows us to visually compare the precision vs recall trade-off between different approaches, and by calculating the area under the curve of this method (PR-AUC), it also summarizes the performance to a single number that can be used to choose the best parameters when training a model.
+Given our problem to solve is an imbalanced binary classification, existing literature suggest that an appropriate method to measure performance is with Precision Recall curves @Potthast-2010. This method allows us to visually compare the precision vs recall trade-off between different approaches, and by calculating the area under the curve of this method (PR-AUC), it also summarizes the performance to a single number that can be used to choose the best parameters when training a model.
 
-We find that by implementing a set of 24 features that rely on the provided dataset without any other external source, we achieve a PR-AUC of ~0.68 with a Random Forest algorithm trained with 1000 trees and 3 random features at each split point. This result is slightly better than the best approach discussed in [Potthast2010] which yielded ~0.67.
+We find that by implementing a set of 24 features that rely on the provided dataset without any other external source, we achieve a PR-AUC of ~0.68 with a Random Forest algorithm trained with 1000 trees and 3 random features at each split point. This result is slightly better than the best approach discussed in @Potthast-2010 which yielded ~0.67.
 
 ## Methods and Analysis
 
@@ -41,13 +44,4 @@ We find that by implementing a set of 24 features that rely on the provided data
 ## Conclusion
 (A conclusion section that gives a brief summary of the report, its potential impact, its limitations, and future work. )
 
-## Citations
-
-[Wikipedia] Wikipedia contributors, "Wikipedia," Wikipedia, The Free Encyclopedia, https://en.wikipedia.org/w/index.php?title=Wikipedia&oldid=1071043064 (accessed February 14, 2022).
-
-[Vandalism] Wikipedia contributors, "Vandalism on Wikipedia," Wikipedia, The Free Encyclopedia, https://en.wikipedia.org/w/index.php?title=Vandalism_on_Wikipedia&oldid=1069412446 (accessed February 14, 2022).
-
-[Corpus] Webis Group, "Webis Data PAN-WVC-10," https://webis.de/data/pan-wvc-10.html (accessed February 14, 2022).
-
-[ClueBotNG] Wikipedia contributors, "User:ClueBot NG," Wikipedia, The Free Encyclopedia, https://en.wikipedia.org/w/index.php?title=User:ClueBot_NG&oldid=391868393 (accessed February 14, 2022).
-
+`r if (knitr::is_html_output()) '## References {-}'`
