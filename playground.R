@@ -1,7 +1,10 @@
 ##
-# In this project we intend to build a vandalism detection system for Wikipedia edits.
+# In this project we intend to build a binary vandalism classifierfor Wikipedia edits.
 ##
 
+#
+# Dependencies
+#
 if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
 if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
 if(!require(doParallel)) install.packages("doParallel", repos = "http://cran.us.r-project.org")
@@ -23,10 +26,6 @@ library(nnet)
 # load up helper functions
 source("functions.R")
 
-#
-# SETUP
-#
-
 # We utilize "PAN Wikipedia Vandalism Corpus 2010": https://webis.de/data/pan-wvc-10
 # download corpus if needed. note the zip file is 438 MBs, and it expands to 1.4 GBs.
 if (!dir.exists("data/pan-wikipedia-vandalism-corpus-2010")) {
@@ -42,33 +41,41 @@ if (!dir.exists("data/pan-wikipedia-vandalism-corpus-2010")) {
   rm(corpusFileName, corpusURI)
 }
 
-# read edits, merge with golden classificaton of vandalism / regular
+#
+# Load data
+# Below we read both edits.csv and gold-annotations.csv and join them.
+#
 parentPath <- "data/pan-wikipedia-vandalism-corpus-2010/"
 
-edits <- read_csv(file = paste(parentPath, "edits.csv", sep = ""),
-                  quote = "\"",
-                  col_names = TRUE,
-                  col_types = cols(
-                    editid = col_integer(),
-                    editor = col_character(),
-                    oldrevisionid = col_integer(),
-                    newrevisionid = col_integer(),
-                    diffurl = col_character(),
-                    edittime = col_datetime(format = ""),
-                    editcomment = col_character(),
-                    articleid = col_integer(),
-                    articletitle = col_character()
-                  ))
+edits <- read_csv(
+  file = paste(parentPath, "edits.csv", sep = ""),
+  quote = "\"",
+  col_names = TRUE,
+  col_types = cols(
+    editid = col_integer(),
+    editor = col_character(),
+    oldrevisionid = col_integer(),
+    newrevisionid = col_integer(),
+    diffurl = col_character(),
+    edittime = col_datetime(format = ""),
+    editcomment = col_character(),
+    articleid = col_integer(),
+    articletitle = col_character()
+  )
+)
 
-annotations <- read_csv(file = paste(parentPath, "gold-annotations.csv", sep = ""),
-                        quote = "\"",
-                        col_names = TRUE,
-                        col_types = cols(
-                          editid = col_integer(),
-                          class = col_character(),
-                          annotators = col_integer(),
-                          totalannotators = col_integer()
-                        )) %>%
+annotations <-
+  read_csv(
+    file = paste(parentPath, "gold-annotations.csv", sep = ""),
+    quote = "\"",
+    col_names = TRUE,
+    col_types = cols(
+      editid = col_integer(),
+      class = col_character(),
+      annotators = col_integer(),
+      totalannotators = col_integer()
+    )
+  ) %>%
   mutate(class = factor(class, levels = c("vandalism", "regular"))) # make sure vandalism == 1
 
 edits <- edits %>%
@@ -76,9 +83,12 @@ edits <- edits %>%
 
 rm(annotations)
 
-revisionPaths <- list.files(path = paste(parentPath, "article-revisions", sep = ""),
-                            full.names = TRUE,
-                            recursive = TRUE)
+revisionPaths <-
+  list.files(
+    path = paste(parentPath, "article-revisions", sep = ""),
+    full.names = TRUE,
+    recursive = TRUE
+  )
 
 revisions <- map_dfr(revisionPaths, function(path) {
   list(
@@ -86,7 +96,7 @@ revisions <- map_dfr(revisionPaths, function(path) {
     revisionpath = path,
     revisiontext = read_file(path)
   )
-}) %>% mutate(revisionsize = str_length(revisiontext))
+}) %>% mutate(revisionsize = str_length(revisiontext)) # revisionsize will be used later
 
 rm(revisionPaths, parentPath)
 
@@ -100,24 +110,31 @@ diffs <- edits %>%
     revisions %>%
       select(revisionid, revisionpath, revisionsize) %>%
       rename(oldrevisionpath = revisionpath, oldrevisionsize = revisionsize),
-    by = c("oldrevisionid" = "revisionid")) %>%
+    by = c("oldrevisionid" = "revisionid")
+  ) %>%
   left_join(
     revisions %>%
       select(revisionid, revisionpath, revisionsize) %>%
       rename(newrevisionpath = revisionpath, newrevisionsize = revisionsize),
-    by = c("newrevisionid" = "revisionid")) %>%
+    by = c("newrevisionid" = "revisionid")
+  ) %>%
   mutate(diff = git_diff(oldrevisionpath, newrevisionpath)) %>%
-  select(editid, oldrevisionid, newrevisionid, oldrevisionsize, newrevisionsize, diff) %>%
+  select(editid,
+         oldrevisionid,
+         newrevisionid,
+         oldrevisionsize,
+         newrevisionsize,
+         diff) %>%
   mutate(additions =
            lapply(diff, function(d) {
              s = d[str_starts(d, fixed("+")) & !str_starts(d, fixed("+++"))]
              str_sub(s, start = 2)
-             })) %>%
+           })) %>%
   mutate(deletions =
            lapply(diff, function(d) {
              s = d[str_starts(d, fixed("-")) & !str_starts(d, fixed("---"))]
              str_sub(s, start = 2)
-             }))
+           }))
 
 time <- proc.time() - start
 print(time)
@@ -469,9 +486,10 @@ train_neural <-  train(
   y = train_class,
   method = "nnet",
   trControl = control,
-  tuneGrid = expand.grid(size = seq(1,100,10), decay = seq(0, 1, 0.1)),
+  tuneGrid = expand.grid(size = c(1, 2, 3 , 4 ,5, seq(10,100, 9)), decay = seq(0, 1, 0.1)),
   metric = "AUC", # PR-AUC
-  maximize = TRUE
+  maximize = TRUE,
+  maxit = 300 # max iterations
 )
 
 
