@@ -11,7 +11,6 @@ git_diff <- Vectorize(function(old, new) {
     command = "git",
     args = c(
       "diff",
-      "--minimal",
       "--no-prefix",
       "--no-index",
       "--word-diff=porcelain",
