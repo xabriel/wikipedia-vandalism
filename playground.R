@@ -6,6 +6,7 @@
 # Dependencies
 #
 if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(multidplyr)) install.packages("multidplyr", repos = "http://cran.us.r-project.org")
 if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
 if(!require(doParallel)) install.packages("doParallel", repos = "http://cran.us.r-project.org")
 if(!require(MLmetrics)) install.packages("MLmetrics", repos = "http://cran.us.r-project.org")
@@ -15,6 +16,7 @@ if(!require(naivebayes)) install.packages("tidytext", repos = "http://cran.us.r-
 if(!require(nnet)) install.packages("nnet", repos = "http://cran.us.r-project.org")
 
 library(tidyverse)
+library(multidplyr)
 library(caret)
 library(doParallel)
 library(MLmetrics)
@@ -100,6 +102,13 @@ revisions <- map_dfr(revisionPaths, function(path) {
 
 rm(revisionPaths, parentPath)
 
+# use multidplyr to parallelize dplyr actions
+cores <- coalesce(detectCores() - 1, 1)
+cluster <- multidplyr::new_cluster(cores)
+multidplyr::cluster_copy(cluster, 'git_diff')
+multidplyr::cluster_library(cluster, 'tidyverse')
+edits <- edits %>% partition(cluster)
+
 # let's calculate the diffs
 start <- proc.time()
 
@@ -110,13 +119,15 @@ diffs <- edits %>%
     revisions %>%
       select(revisionid, revisionpath, revisionsize) %>%
       rename(oldrevisionpath = revisionpath, oldrevisionsize = revisionsize),
-    by = c("oldrevisionid" = "revisionid")
+    by = c("oldrevisionid" = "revisionid"),
+    copy = TRUE
   ) %>%
   left_join(
     revisions %>%
       select(revisionid, revisionpath, revisionsize) %>%
       rename(newrevisionpath = revisionpath, newrevisionsize = revisionsize),
-    by = c("newrevisionid" = "revisionid")
+    by = c("newrevisionid" = "revisionid"),
+    copy = TRUE
   ) %>%
   mutate(diff = git_diff(oldrevisionpath, newrevisionpath)) %>%
   select(editid,
@@ -422,7 +433,6 @@ varImp(train_knn)
 
 
 library(doParallel)
-cores <- coalesce(detectCores() - 1, 1)
 cl <- makePSOCKcluster(cores)
 registerDoParallel(cl)
 
