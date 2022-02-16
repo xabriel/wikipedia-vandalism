@@ -94,9 +94,9 @@ revisions <- map_dfr(revisionPaths, function(path) {
   list(
     revisionid = as.integer(str_remove(basename(path), ".txt")),
     revisionpath = path,
-    revisiontext = read_file(path)
+    revisionsize = str_length(read_file(path))
   )
-}) %>% mutate(revisionsize = str_length(revisiontext)) # revisionsize will be used later
+})
 
 rm(revisionPaths, parentPath)
 
@@ -532,58 +532,3 @@ results_rf %>%
 results_rf %>%
   pr_curve(truth, vandalism) %>%
   autoplot()
-
-# let's take a look at the FP and FN, see if we can get insights on why we are failing
-false_negatives_rf <- results_rf %>%
-  filter(truth != predicted) %>%
-  filter(truth == "vandalism")
-
-false_positives_rf <- results_rf %>%
-  filter(truth != predicted) %>%
-  filter(truth == "regular")
-
-View(false_positives_rf)
-
-View(validation_edits[false_positives_rf$index,])
-
-# pull random true positive:
-edits %>% filter(class == "vandalism") %>% last()
-revisions %>% filter(revisionid == tp) %>% pull(revisiontext)
-
-
-
-
-# maybe use a text corpus package like tm?
-
-
-# quickly running OOM with lm and rf....
-# WE NEED features, not raw data!
-lm <- caret::train(
-  form = class ~ editor + editcomment,
-  data = play,
-  method = "lm"
-)
-
-
-
-# of vandalism, how many are anonymous?
-# FALSE  TRUE 
-# 313  2081
-edits %>%
-  # filter(class == "vandalism") %>%
-  mutate(is_anonymous = str_detect(editor, ip_address_regex)) %>%
-  select(editor, is_anonymous) %>% pull(is_anonymous) %>% table()
-
-# of vandalism, how many have no comment?
-# FALSE  TRUE 
-#  1530   864 
-edits %>%
-  filter(class == "vandalism") %>%
-  mutate(is_comment_null = editcomment == "null") %>%
-  select(editcomment, is_comment_null) %>%
-  pull(is_comment_null) %>% table()
-
-rm(first, second, parentPath, revisionCount, ip_address_regex,d)  
-
-# whenever we get the diffs, let's try:
-# naive bayes (used in spam filtering)
