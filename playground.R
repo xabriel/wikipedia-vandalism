@@ -168,6 +168,9 @@ rm(diffs, revisions)
 # let's start calculating features
 # 
 
+# copy function num_unique_chars into cluster
+multidplyr::cluster_copy(cluster, 'num_unique_chars')
+
 # character level features:
 character_features <- edits %>%
   select(editid, additions) %>%
@@ -216,8 +219,8 @@ edits %>% pull(class) %>% table()
 # but createDataPartition takes care of stratifying splits properly.
 set.seed(123, sample.kind="Rounding")
 validation_index <- createDataPartition(y = edits %>% pull(class), times = 1, p = 0.5, list = FALSE)
-validation_edits <- edits[validation_index,]
-train_edits <- edits[-validation_index,]
+validation_edits <- edits %>% as_tibble() %>% .[validation_index,]
+train_edits <- edits %>% as_tibble() %>% .[-validation_index,]
 
 # load word dictionaries
 profanities <- read_lines(file = "data/en/profanities.txt")
@@ -271,14 +274,26 @@ common_regular_words <- common_regular_words %>%
   arrange(word) %>%
   pull(word)
 
+multidplyr::cluster_copy(cluster, 'bin_search')
+multidplyr::cluster_copy(cluster, 'profanities')
+multidplyr::cluster_copy(cluster, 'pronouns')
+multidplyr::cluster_copy(cluster, 'contractions')
+multidplyr::cluster_copy(cluster, 'superlatives')
+multidplyr::cluster_copy(cluster, 'wikisyntax')
+multidplyr::cluster_copy(cluster, 'common_vandalism_words')
+multidplyr::cluster_copy(cluster, 'common_regular_words')
+
 word_features <- edits %>%
+  collect() %>% # multidplyr doesn't like unnest_longer(), so let's do this section locally
   select(editid, additions) %>%
-  mutate(additions_as_string = map_chr(additions, str_c, collapse = "\n")) %>%
   mutate(
+    additions_as_string = map_chr(additions, str_c, collapse = "\n"),
     word_list = map(str_match_all(additions_as_string, wiki_regex), as.vector),
     word_list_lower = map(word_list, str_to_lower),
-  ) %>% select(editid, word_list_lower) %>%
+  ) %>%
+  select(editid, word_list_lower) %>%
   unnest_longer(col = word_list_lower, values_to = "word") %>%
+  partition(cluster) %>% # now leverage multidplyr
   mutate(
     word = replace_na(word, ""),
     is_profanity = map_lgl(word, function(w) {
@@ -352,6 +367,7 @@ size_features <- edits %>%
   select(-oldrevisionsize, -newrevisionsize, -additions, -deletions)
 
 ip_address_regex <- "\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}"
+multidplyr::cluster_copy(cluster, 'ip_address_regex')
 
 editor_features <- edits %>%
   select(editid, editor, edittime) %>%
@@ -395,10 +411,13 @@ all_features <-
   left_join(size_features, by = "editid") %>%
   left_join(editor_features, by = "editid") %>%
   select(-editid) %>%
+  collect() %>%
   as.matrix()
 
-
 golden_class <- edits %>% pull(class)
+
+# we are now down with multidplyr parallelism
+rm(cluster)
 
 #
 # split into train, test, and validation sets
