@@ -112,7 +112,7 @@ edits <- edits %>% partition(cluster)
 # let's calculate the diffs
 start <- proc.time()
 
-# this takes ~10mins
+# this takes ~10mins serial, ~2mins with multidplyr and 7 cores
 diffs <- edits %>%
   select(editid, oldrevisionid, newrevisionid) %>%
   left_join(

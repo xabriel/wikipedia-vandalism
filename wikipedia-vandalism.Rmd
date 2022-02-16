@@ -6,10 +6,52 @@ output: html_document
 bibliography: references.bib
 csl: journal-of-the-acm.csl
 link-citations: true
+notes: footnotes
 ---
 
-```{r setup, include=FALSE}
+```{r setup, include=FALSE, cache=TRUE}
 knitr::opts_chunk$set(echo = TRUE)
+
+#
+# Dependencies
+#
+if(!require(tidyverse)) install.packages("tidyverse", repos = "http://cran.us.r-project.org")
+if(!require(multidplyr)) install.packages("multidplyr", repos = "http://cran.us.r-project.org")
+if(!require(caret)) install.packages("caret", repos = "http://cran.us.r-project.org")
+if(!require(doParallel)) install.packages("doParallel", repos = "http://cran.us.r-project.org")
+if(!require(MLmetrics)) install.packages("MLmetrics", repos = "http://cran.us.r-project.org")
+if(!require(yardstick)) install.packages("yardstick", repos = "http://cran.us.r-project.org")
+if(!require(tidytext)) install.packages("tidytext", repos = "http://cran.us.r-project.org")
+if(!require(naivebayes)) install.packages("tidytext", repos = "http://cran.us.r-project.org")
+if(!require(nnet)) install.packages("nnet", repos = "http://cran.us.r-project.org")
+
+library(tidyverse)
+library(multidplyr)
+library(caret)
+library(doParallel)
+library(MLmetrics)
+library(yardstick)
+library(tidytext)
+library(naivebayes)
+library(nnet)
+
+# load up helper functions
+source("functions.R")
+
+# We utilize "PAN Wikipedia Vandalism Corpus 2010": https://webis.de/data/pan-wvc-10
+# download corpus if needed. note the zip file is 438 MBs, and it expands to 1.4 GBs.
+if (!dir.exists("data/pan-wikipedia-vandalism-corpus-2010")) {
+  dir.create("data/pan-wikipedia-vandalism-corpus-2010")
+  corpusFileName <- "data/pan-wikipedia-vandalism-corpus-2010.zip"
+  corpusURI <-
+    "https://zenodo.org/record/3341488/files/pan-wikipedia-vandalism-corpus-2010.zip?download=1"
+
+  download.file(corpusURI, corpusFileName)
+  unzip(corpusFileName, exdir = "data")
+
+  file.remove(corpusFileName)
+  rm(corpusFileName, corpusURI)
+}
 ```
 
 ## Introduction
@@ -22,26 +64,208 @@ Most of the edits are bona fide contributions. However, about 7% of them are van
 
 Wikipedia vandalism is handled with manual and automated approaches. In manual approaches, vandalism is removed by the same community of contributors. In severe cases, where vandalism occurs constantly for a particular entry, administrators may enable edit restrictions. Both of these manual approaches slow down the rate of quality contributions since time has to be diverted to clean up existing content.
 
-In automated approaches, software bots have been implemented to detect and correct vandalism. The first iteration of bots used heuristics and regular expressions to detect potential vandalism. The second iteration utilizes more sophisticated approaches. As an example, the ClueBot NG bot uses Naive Bayes and Neural Networks @Wiki-User-ClueBotNG. It catches about 40% of vandalism with its current setting of maximum 0.1% false positive rate @Wiki-User-ClueBotNG. This is the current state of the work.
+In automated approaches, software bots have been implemented to detect and correct vandalism. The first iteration of bots used heuristics and regular expressions to detect potential vandalism. The second iteration utilizes more sophisticated approaches. As an example, the "ClueBot NG" bot uses Naive Bayes and Neural Networks to flag vandalism in the English Wikipedia. It catches about 40% of vandalism with its current setting of maximum 0.1% false positive rate @Wiki-User-ClueBotNG. This is the current state of the work.
 
-There has been considerate work done to improve detection [couple cites here]. One of the most interesting approaches is that of @Potthast-2010, in which a competition was held to encourage contributions to the state of the art. In this work, we utilize the same dataset as in their work to implemented a binary classifier. We evaluate our solution by comparing it against the top submissions to their competition.
+There has been considerate work done to improve detection [couple cites here]. One of the most interesting approaches is that of @Potthast-2010, in which a competition was held to encourage contributions to the state of the art. We utilize the same dataset as in @Potthast-2010 to implemented a binary classifier that can be compared to the top submissions to their competition.
 
-The dataset is named the PAN Wikipedia Vandalism Corpus 2010. It consists of 32,452 edits on 28,468 English Wikipedia articles, among which 2,391 vandalism edits have been identified @Wiki-Corpus-2010. It reflects the same rate of vandalism as Wikipedia at 7.3%.
+The dataset is the "PAN Wikipedia Vandalism Corpus 2010". It consists of 32,452 edits on 28,468 English Wikipedia articles, among which 2,391 vandalism edits have been identified @Wiki-Corpus-2010. It reflects the same rate of vandalism as Wikipedia at 7.3%.
 
-The dataset consists of multiple files with metadata about the edits such as a unique identifier, the author of the edit, whether the edit is considered vandalism, among others. It also includes the actual content of the edited article before and after the edit, and thus we can use existing textual difference algorithm to find the actual changes. We discuss the dataset and transformations in more details in the Methods and Analysis section.
+The dataset consists of multiple files with metadata about the edits such as a unique identifier, the author of the edit, whether the edit is considered vandalism, among others. It also includes the content of the edited article before and after the edit, and thus we can use existing textual difference algorithms to find the additions and deletions. We discuss the dataset and transformations in more details in the Methods and Analysis section.
 
-Given our problem to solve is an imbalanced binary classification, existing literature suggest that an appropriate method to measure performance is with Precision Recall curves @Potthast-2010. This method allows us to visually compare the precision vs recall trade-off between different approaches, and by calculating the area under the curve of this method (PR-AUC), it also summarizes the performance to a single number that can be used to choose the best parameters when training a model.
+Our problem to solve is: given a set of edits of Wikipedia articles, we want to separate the ones we believe to be vandalism, from the ones we believe to not be. This is an imbalanced binary classification. Existing literature suggest that an appropriate method to measure performance is with "Precision Recall curves" @Potthast-2010. This method allows us to visually compare the trade-off between these metrics, and by calculating the area under the curve of this method (PR-AUC), we can summarize the performance to a single number. This number can be used to choose the best parameters when tuning a model, and to compare models numerically.
 
-We find that by implementing a set of 24 features that rely on the provided dataset without any other external source, we achieve a PR-AUC of ~0.68 with a Random Forest algorithm trained with 1000 trees and 3 random features at each split point. This result is slightly better than the best approach discussed in @Potthast-2010 which yielded ~0.67.
+We find that by implementing a set of 24 features that rely on the provided dataset without any other external source, we achieve a PR-AUC of \~0.68 with a Random Forest algorithm trained with 1000 trees and 3 random features at each split point. This result is slightly better than the best approach discussed in @Potthast-2010 which yielded \~0.67.
 
 ## Methods and Analysis
+
+### PAN Wikipedia Vandalism Corpus 2010
+
+The PAN Wikipedia Vandalism Corpus 2010 consists of 32,452 edits on 28,468 English Wikipedia articles, among which 2,391 vandalism edits have been identified @Wiki-Corpus-2010. It reflects the same rate of vandalism as Wikipedia at 7.3%. There are two files and one directory included in the dataset that are relevant to our work. The first file, `edits.csv`, contains comma separated fields, with each line containing the following:
+
++-----------------------------------+------------------------------------------------------------------------------------+
+| Field                             | Description                                                                        |
++===================================+====================================================================================+
+| editid                            | A synthetic unique edit id to easily join this file with others.                   |
++-----------------------------------+------------------------------------------------------------------------------------+
+| editor                            | The username for this edit, or an IP address if anonymous.                         |
++-----------------------------------+------------------------------------------------------------------------------------+
+| oldrevisionid                     | A Wikipedia unique id for the revision of the article before the edit.             |
++-----------------------------------+------------------------------------------------------------------------------------+
+| newrevisionid                     | A Wikipedia unique id for the revision of the article after the edit.              |
++-----------------------------------+------------------------------------------------------------------------------------+
+| diffurl                           | a URL pointing to Wikipedia's visual interface for comparing old and new revision. |
++-----------------------------------+------------------------------------------------------------------------------------+
+| edittime                          | Timestamp for the edit in ISO 8601 UTC format.                                     |
++-----------------------------------+------------------------------------------------------------------------------------+
+| editcomment                       | The comment, if any, that the user left when making the edit.                      |
++-----------------------------------+------------------------------------------------------------------------------------+
+| articleid                         | A Wikipedia unique id of the article that this edit modifies.                      |
++-----------------------------------+------------------------------------------------------------------------------------+
+| articletitle                      | The title of the edited article.                                                   |
++-----------------------------------+------------------------------------------------------------------------------------+
+
+The second file, `gold-annotations.csv`, contains the following:
+
++-----------------------------------+------------------------------------------------------------------+
+| Field                             | Description                                                      |
++===================================+==================================================================+
+| editid                            | References the editid from `edits.csv`.                          |
++-----------------------------------+------------------------------------------------------------------+
+| goldclass                         | Classification of the edit as vandalism or regular.              |
++-----------------------------------+------------------------------------------------------------------+
+| annotators                        | Number of annotators that concur with the classification         |
++-----------------------------------+------------------------------------------------------------------+
+| totalannotators                   | Total number of annotators who reviewed and classified the edit. |
++-----------------------------------+------------------------------------------------------------------+
+
+Finally, there is a directory called `article-revisions/` which @Wiki-Corpus-2010 describes as: "A list of directories `part1/` through `part65/`. Each part directory contains up to 1000 text files, each of which being the revision of a Wikipedia article. The name of a file is its revision identifier, which is referenced in the `edits.csv` file. The contents of each text file is the plain wikitext of the revision."
+
+### Data cleaning
+
+For the rest of this report we use the R programming language and supporting libraries to transform the dataset. A working knowledge of programming is assumed.
+
+The clean up steps for `edits.csv` and `gold-annotations.csv` is trivial: we need only to read and join them by `editid`. We keep the output in an `edits` R data frame object.
+
+Processing `article-revisions/` is more interesting. Our end goal is to calculate what is commonly known as a `diff`; the textual difference between two files. We first define a function `git_diff()` that leverages the built-in diff algorithm from the git version control system[^1]. The key argument to this call is `--word-diff=porcelain`, which makes the output be a line-based format easily consumed by scripts @git-porcelain.
+
+[^1]: We considered multiple approaches for calculating the diff, including using portable code from the `diffobj` R package. However, we found no elegant way to transform the diff into a format amenable to our purposes other than with `git diff`. If the reader is attempting to reproduce our code, we recommend the use of a Unix-like system like Linux or MacOS.
+
+```{r git-diff-definition, eval=FALSE, cache=TRUE}
+git_diff <- Vectorize(function(old, new) {
+  system2(
+    command = "git",
+    args = c(
+      "diff",
+      "--no-prefix",
+      "--no-index",
+      "--word-diff=porcelain",
+      "--unified=0",
+      old,
+      new
+    ),
+    stdout = TRUE
+  )
+})
+```
+
+With this function defined, we now walk the `article-revisions/` folder collecting metadata about each revision, and then join this data with `edits`. We then mutate the data frame further by calling `git_diff()` on each pair of 'old' and 'new' revisions, and then we separate the diff output into additions (lines that start with an `+`) and deletions (`-`).
+
+```{r load-edits, include=FALSE, cache=TRUE}
+#
+# Load data
+# Below we read both edits.csv and gold-annotations.csv and join them.
+#
+parentPath <- "data/pan-wikipedia-vandalism-corpus-2010/"
+
+edits <- read_csv(
+  file = paste(parentPath, "edits.csv", sep = ""),
+  quote = "\"",
+  col_names = TRUE,
+  col_types = cols(
+    editid = col_integer(),
+    editor = col_character(),
+    oldrevisionid = col_integer(),
+    newrevisionid = col_integer(),
+    diffurl = col_character(),
+    edittime = col_datetime(format = ""),
+    editcomment = col_character(),
+    articleid = col_integer(),
+    articletitle = col_character()
+  )
+)
+
+annotations <-
+  read_csv(
+    file = paste(parentPath, "gold-annotations.csv", sep = ""),
+    quote = "\"",
+    col_names = TRUE,
+    col_types = cols(
+      editid = col_integer(),
+      class = col_character(),
+      annotators = col_integer(),
+      totalannotators = col_integer()
+    )
+  ) %>%
+  mutate(class = factor(class, levels = c("vandalism", "regular"))) # make sure vandalism == 1
+
+edits <- edits %>%
+  left_join(annotations %>% select(editid, class), by = "editid")
+
+rm(annotations)
+
+# use multidplyr to parallelize dplyr actions
+cores <- coalesce(detectCores() - 1, 1)
+cluster <- multidplyr::new_cluster(cores)
+multidplyr::cluster_copy(cluster, 'git_diff')
+multidplyr::cluster_library(cluster, 'tidyverse')
+edits <- edits %>% partition(cluster)
+```
+
+```{r calculate-diffs, cache=TRUE, warning=FALSE}
+parentPath <- "data/pan-wikipedia-vandalism-corpus-2010/"
+
+revisionPaths <-
+  list.files(
+    path = paste(parentPath, "article-revisions", sep = ""),
+    full.names = TRUE,
+    recursive = TRUE
+  )
+
+revisions <- map_dfr(revisionPaths, function(path) {
+  list(
+    revisionid = as.integer(str_remove(basename(path), ".txt")),
+    revisionpath = path,
+    revisionsize = str_length(read_file(path))
+  )
+})
+
+diffs <- edits %>%
+  select(editid, oldrevisionid, newrevisionid) %>%
+  left_join(
+    revisions %>%
+      select(revisionid, revisionpath, revisionsize) %>%
+      rename(oldrevisionpath = revisionpath, oldrevisionsize = revisionsize),
+    by = c("oldrevisionid" = "revisionid"),
+    copy = TRUE
+  ) %>%
+  left_join(
+    revisions %>%
+      select(revisionid, revisionpath, revisionsize) %>%
+      rename(newrevisionpath = revisionpath, newrevisionsize = revisionsize),
+    by = c("newrevisionid" = "revisionid"),
+    copy = TRUE
+  ) %>%
+  mutate(diff = git_diff(oldrevisionpath, newrevisionpath)) %>%
+  select(editid,
+         oldrevisionid,
+         newrevisionid,
+         oldrevisionsize,
+         newrevisionsize,
+         diff) %>%
+  mutate(additions =
+           lapply(diff, function(d) {
+             s = d[str_starts(d, fixed("+")) & !str_starts(d, fixed("+++"))]
+             str_sub(s, start = 2)
+           })) %>%
+  mutate(deletions =
+           lapply(diff, function(d) {
+             s = d[str_starts(d, fixed("-")) & !str_starts(d, fixed("---"))]
+             str_sub(s, start = 2)
+           }))
+```
+
+```{r, cache=TRUE}
+rm(revisionPaths, parentPath)
+```
 
 (A methods/analysis section that explains the process and techniques used, including data cleaning, data exploration and visualization, any insights gained, and your modeling approach. At least two different models or algorithms must be used, with at least one being more advanced than linear or logistic regression for prediction problems. )
 
 ## Results
+
 (A results section that presents the modeling results and discusses the model performance.)
 
 ## Conclusion
+
 (A conclusion section that gives a brief summary of the report, its potential impact, its limitations, and future work. )
 
 `r if (knitr::is_html_output()) '## References {-}'`
