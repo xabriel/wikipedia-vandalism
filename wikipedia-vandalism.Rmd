@@ -68,11 +68,11 @@ In automated approaches, software bots have been implemented to detect and corre
 
 There has been considerate work done to improve detection [couple cites here]. One of the most interesting approaches is that of @Potthast-2010, in which a competition was held to encourage contributions to the state of the art. We utilize the same dataset as in @Potthast-2010 to implemented a binary classifier that can be compared to the top submissions to their competition.
 
-The dataset is the "PAN Wikipedia Vandalism Corpus 2010". It consists of 32,452 edits on 28,468 English Wikipedia articles, among which 2,391 vandalism edits have been identified @Wiki-Corpus-2010. It reflects the same rate of vandalism as Wikipedia at 7.3%.
+The dataset is the "PAN Wikipedia Vandalism Corpus 2010". It consists of 32,452 edits on 28,468 English Wikipedia articles, among which 2,391 vandalism edits have been identified @Wiki-Corpus-2010. It reflects the same rate of vandalism as Wikipedia at 7.38%.
 
 The dataset consists of multiple files with metadata about the edits such as a unique identifier, the author of the edit, whether the edit is considered vandalism, among others. It also includes the content of the edited article before and after the edit, and thus we can use existing textual difference algorithms to find the additions and deletions. We discuss the dataset and transformations in more details in the Methods and Analysis section.
 
-Our problem to solve is: given a set of edits of Wikipedia articles, we want to separate the ones we believe to be vandalism, from the ones we believe to not be. This is an imbalanced binary classification. Existing literature suggest that an appropriate method to measure performance is with "Precision Recall curves" @Potthast-2010. This method allows us to visually compare the trade-off between these metrics, and by calculating the area under the curve of this method (PR-AUC), we can summarize the performance to a single number. This number can be used to choose the best parameters when tuning a model, and to compare models numerically.
+Our problem to solve is: given a set of edits of Wikipedia articles, we want to separate the ones we believe to be vandalism, from the ones we believe to not be. This is an imbalanced binary classification. Existing literature suggest that an appropriate method to measure performance is with "Precision-recall curves" (PRC) @Potthast-2010, @Saito-2015. This method allows us to visually compare the trade-off between these metrics, and by calculating the area under the curve of this method (PR-AUC), we can summarize the performance to a single number. This number can be used to choose the best parameters when tuning a model, and to compare models numerically.
 
 We find that by implementing a set of 24 features that rely on the provided dataset without any other external source, we achieve a PR-AUC of \~0.68 with a Random Forest algorithm trained with 1000 trees and 3 random features at each split point. This result is slightly better than the best approach discussed in @Potthast-2010 which yielded \~0.67.
 
@@ -122,7 +122,7 @@ Finally, there is a directory called `article-revisions/` which @Wiki-Corpus-201
 
 ### Data cleaning
 
-For the rest of this report we use the R programming language and supporting libraries to transform the dataset. A working knowledge of programming is assumed.
+For the rest of this report we use the R programming language and supporting libraries to transform the dataset. A working knowledge of programming and regular expressions is assumed.
 
 The clean up steps for `edits.csv` and `gold-annotations.csv` is trivial: we need only to read and join them by `editid`. We keep the output in an `edits` R data frame object.
 
@@ -148,7 +148,7 @@ git_diff <- Vectorize(function(old, new) {
 })
 ```
 
-With this function defined, we now walk the `article-revisions/` folder collecting metadata about each revision, and then join this data with `edits`. We then mutate the data frame further by calling `git_diff()` on each pair of 'old' and 'new' revisions, and then we separate the diff output into additions (lines that start with an `+`) and deletions (`-`).
+With this function defined, we now walk the `article-revisions/` folder collecting metadata about each revision, and then join this data with `edits`. We then mutate the data frame further by calling `git_diff()` on each pair of 'old' and 'new' revisions, and then we separate the diff output into additions (lines that start with an `+`) and deletions (`-`). Finally, we join the difference calculations into `edits` to consolidate into one object.
 
 ```{r load-edits, include=FALSE, cache=TRUE}
 #
@@ -192,7 +192,9 @@ edits <- edits %>%
   left_join(annotations %>% select(editid, class), by = "editid")
 
 rm(annotations)
+```
 
+```{r setup-multidplyr, include=FALSE, cache=TRUE}
 # use multidplyr to parallelize dplyr actions
 cores <- coalesce(detectCores() - 1, 1)
 cluster <- multidplyr::new_cluster(cores)
@@ -215,7 +217,8 @@ revisions <- map_dfr(revisionPaths, function(path) {
   list(
     revisionid = as.integer(str_remove(basename(path), ".txt")),
     revisionpath = path,
-    revisionsize = str_length(read_file(path))
+    # revisionsize = str_length(read_file(path))
+    revisionsize = file.size(path)
   )
 })
 
@@ -252,11 +255,109 @@ diffs <- edits %>%
              s = d[str_starts(d, fixed("-")) & !str_starts(d, fixed("---"))]
              str_sub(s, start = 2)
            }))
+
+edits <- edits %>%
+  select(-diffurl) %>%
+  left_join(diffs %>% select(-oldrevisionid,-newrevisionid),
+            by = c("editid"))
 ```
 
-```{r, cache=TRUE}
+```{r, include=FALSE, cache=TRUE}
 rm(revisionPaths, parentPath)
+rm(diffs, revisions)
 ```
+
+### Data exploration
+As alluded previously, the dataset is highly imbalanced with the `vandalism` class being 7.38% of the data:
+
+```{r imbalance, cache=TRUE}
+edits %>% pull(class) %>% table()
+```
+
+However, the `vandalism` class does show trends that can drive the classification. Most of the profanities are found in the `vandalism` class:
+```{r profanity, cache=TRUE}
+# load list of profanities
+profanities <- read_lines(file = "data/en/profanities.txt")
+# a regex that is aware of wikisyntax
+wiki_regex <- "----|:{1,6}|\\*{1,4}|#{1,4}|={1,5}|\\{\\{|\\}\\}|\\[\\[|]]|\\w+"
+
+edits %>%
+  collect() %>%
+  select(class, additions) %>%
+  mutate(
+    additions_as_string = map_chr(additions, str_c, collapse = "\n"),
+    word_list = map(str_match_all(additions_as_string, wiki_regex), as.vector),
+    word_list_lower = map(word_list, str_to_lower),
+  ) %>%
+  select(class, word_list_lower) %>%
+  unnest_longer(col = word_list_lower, values_to = "word") %>%
+  mutate(word = replace_na(word, ""),
+         is_profanity = map_lgl(word, function(w) {
+           bin_search(profanities, w) > 0
+         })) %>%
+  group_by(class) %>%
+  summarise(profanity_rate = sum(is_profanity) / n())
+```
+Similarly, most of the vandals are anonymous:
+```{r vandals-anonymous, cache=TRUE}
+# a regex that matches IP addresses
+ip_address_regex <- "\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}"
+
+edits %>%
+  collect() %>%
+  select(editor, class) %>%
+  mutate(is_anonymous = str_detect(editor, ip_address_regex)) %>%
+  group_by(class) %>%
+  summarise(anonymous_rate = sum(is_anonymous) / n())
+```
+
+TODO: Still need to elaborate here.
+
+### Feature selection
+
+The following set of features have been implemented, informed by the work of @Potthast-2010 and @MolaVelasco-2012. Note that all of these features are extracted from the dataset without aid of external sources of information. Unless otherwise noted, these features were extracted from the additions of the diff.
+
+Category | Feature | Description
+--------|---------|--------
+Character-level | `upper_to_lower_ratio` | The ratio of uppercase characters (`[A-Z]`) to lowercase (`[a-z]`).
+Character-level | `upper_to_all_ratio` | The ratio of uppercase characters (`[A-Z]`) to all characters (`.`).
+Character-level | `digits_ratio` | The ratio of digits (`\\d`) to all characters (`.`).
+Character-level | `special_chars_ratio` | The ratio of special characters (`[^A-Za-z0-9]`) to all characters (`.`).
+Character-level | `char_diversity` | The character length of all additions to the (1 / number of different characters ).
+Character-level | `compression_ratio` | The ratio of the length of all additions to the length of the compressed version of all additions. We used the `gzip` coder for its speed.
+Word-level | `profanity_count` | How many inserted words are considered to be profanities.
+Word-level | `pronoun_count` | How many inserted words are pronouns. Ex: He, she, they.
+Word-level | `superlative_count` | How many inserted words are superlatives. Ex: biggest, greatest.
+Word-level | `contraction_count` | How many inserted words are contractions. Ex: methinks, won't).
+Word-level | `wikisyntax_count` | How many inserted words are considered WikiSyntax Ex: "[[", table.
+Word-level | `common_vandalism_count` | The top 200 words used by vandals calculated from the train set.
+Word-level | `common_regular_count` | The top 200 words used by non-vandals calculated from the train set.
+Word-level | `longest_word` | The length of the longest word inserted.
+Comment-level | `comment_exists` | Whether the editor included a comment or not.
+Comment-level | `comment_length` | The length of the comment if included, otherwise 0.
+Comment-level | `comment_is_revert` | Whether the comment content suggests the edit is a revert of a previous edit.
+Comment-level | `comment_is_bot` | Whether the comment content suggests the edit was made by a bot.
+Comment-level | `comment_has_profanity` | Whether the comment content includes any word considered a profanity.
+Size statistic | `size_delta` | The difference between the byte length of the new and old revisions.
+Size statistic | `size_ratio` | The ratio between the byte length of the new and old revisions.
+Size statistic | `num_additions` | The number of separate additions as derived by the diff algorithm.
+Size statistic | `num_deletions` | The number of separate deletions as derived by the diff algorithm.
+Editor reputation | `is_anonymous` | Whether the editor is registered on Wikipedia or not.
+
+### Relative effect of each feature
+In this section we show the effect of each feature separately.
+
+### Evaluating performance
+
+There are multiple ways to evaluate the performance of a learning algorithm. Tipically, metrics are derived from the confusion matrix. That is, from the four possible predicted conditions: true positive (TP), true negative (TN), false positive (FP), or false negative (TP).
+
+For imbalanced binary classification, a metric like $Accuracy = \frac{TP + TN}{TP + TN + FP +FN}$ can be misleading since we would get a high accuracy if we always predict the majority class. In our case where the `vandalism` class represents only 7.38% of the dataset, accuracy would yield 92.62%.
+
+Additionally, we need a metric that penalizes FP hits, since labeling bona fide contributions as `vandalism` is a particularly bad outcome for a system as Wikipedia that depends on volunteer contributions. Existing literature suggest that an appropriate method for this situation are "Precision-recall curves" (PRC). PRC allows us to visually compare the trade-off between precision and recall, provides visual separation when comparing alternative classifiers, and by calculating the area under the curve of this method (PR-AUC), we can summarize the performance to a single number @Potthast-2010, @Saito-2015.
+
+PRC are calculated as follows: 1) Implement a classification algorithm. 2) Use the algorithm to predict the probability of the 'positive' class (in our case `vandalism`). 3) Now calculate the confusion matrix of the algorithm while varying the threshold $\tau$ of binary classification between [0,1]. 4) Use the confusion matrix at each threshold $\tau$ to calculate the Precision and Recall, and plot the outcome as x and y, respectively.
+
+### Machine Learning Algorithm
 
 (A methods/analysis section that explains the process and techniques used, including data cleaning, data exploration and visualization, any insights gained, and your modeling approach. At least two different models or algorithms must be used, with at least one being more advanced than linear or logistic regression for prediction problems. )
 
