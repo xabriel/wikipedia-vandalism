@@ -348,16 +348,26 @@ Editor reputation | `is_anonymous` | Whether the editor is registered on Wikiped
 In this section we show the effect of each feature separately.
 
 ### Evaluating performance
+There are multiple ways to evaluate the performance of a learning algorithm. Metrics are typically derived from the confusion matrix. That is, from the four possible predicted conditions: true positive (TP), true negative (TN), false positive (FP), or false negative (TP). Below we discussed our chosen metrics that allow us to compare our solution againts both research classifiers as well as the current best implementation.
 
-There are multiple ways to evaluate the performance of a learning algorithm. Tipically, metrics are derived from the confusion matrix. That is, from the four possible predicted conditions: true positive (TP), true negative (TN), false positive (FP), or false negative (TP).
+#### Metric for comparison againt top classifiers from @Potthast-2010
 
-For imbalanced binary classification, a metric like $Accuracy = \frac{TP + TN}{TP + TN + FP +FN}$ can be misleading since we would get a high accuracy if we always predict the majority class. In our case where the `vandalism` class represents only 7.38% of the dataset, accuracy would yield 92.62%.
+For imbalanced binary classification, a metric like $Accuracy = \frac{TP + TN}{TP + TN + FP +FN}$ can be misleading since we would get a high accuracy even if we always predict the majority class. In our case where the `vandalism` class is 7.38% of the dataset, always predicting majority class would yield 92.62% accuracy.
 
-Additionally, we need a metric that penalizes FP hits, since labeling bona fide contributions as `vandalism` is a particularly bad outcome for a system as Wikipedia that depends on volunteer contributions. Existing literature suggest that an appropriate method for this situation are "Precision-recall curves" (PRC). PRC allows us to visually compare the trade-off between precision and recall, provides visual separation when comparing alternative classifiers, and by calculating the area under the curve of this method (PR-AUC), we can summarize the performance to a single number @Potthast-2010, @Saito-2015.
+Additionally, we need a metric that penalizes FP hits, since labeling bona fide contributions as `vandalism` is a particularly bad outcome for a system as Wikipedia that depends on volunteer contributions. Existing literature suggest that an appropriate metric for this situation is the "Precision-recall curve" (PRC). This curve allows us to visually compare the trade-off between precision and recall, provides visual separation when comparing alternative classifier curves, and by calculating the area under the curve (PR-AUC), we can summarize the performance to a single number @Potthast-2010, @Saito-2015.
 
 PRC are calculated as follows: 1) Implement a classification algorithm. 2) Use the algorithm to predict the probability of the 'positive' class (in our case `vandalism`). 3) Now calculate the confusion matrix of the algorithm while varying the threshold $\tau$ of binary classification between [0,1]. 4) Use the confusion matrix at each threshold $\tau$ to calculate the Precision and Recall, and plot the outcome as x and y, respectively.
 
+#### Metric for comparison against ClueBot NG @Wiki-User-ClueBotNG
+For completeness, we also compare our classifier to the current best bot implementation in the English Wikipedia. Only two performance metrics seem to be available: 40% TP-rate at fixed 0.1% FP rate ($TP-rate$), and 55% TP-rate at fixed 0.25% false positive rate @Wiki-User-ClueBotNG.
+
+These two data points can be used as reference points in aReceiver Operating Characteristic Curve (ROC Curve). A ROC Curve, in principle, is similar to a PRC curve, but instead we plot the true positive rate against the false positive rate. Although @Potthast-2010 finds ROC curves not the most appropriate for comparing vandalism classifiers, it is the only visual comparison that we can do against the limited data available from ClueBot NG's performance.
+
+
 ### Machine Learning Algorithm
+
+In this work we considered three different algorithms: K-nearest Neighbors, Neural Networks and Random Forest.
+
 
 (A methods/analysis section that explains the process and techniques used, including data cleaning, data exploration and visualization, any insights gained, and your modeling approach. At least two different models or algorithms must be used, with at least one being more advanced than linear or logistic regression for prediction problems. )
 
