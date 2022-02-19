@@ -24,6 +24,7 @@ if(!require(yardstick)) install.packages("yardstick", repos = "http://cran.us.r-
 if(!require(tidytext)) install.packages("tidytext", repos = "http://cran.us.r-project.org")
 if(!require(naivebayes)) install.packages("tidytext", repos = "http://cran.us.r-project.org")
 if(!require(nnet)) install.packages("nnet", repos = "http://cran.us.r-project.org")
+# FIXME: add kknn
 
 library(tidyverse)
 library(multidplyr)
@@ -275,11 +276,15 @@ edits %>% pull(class) %>% table()
 ```
 
 However, the `vandalism` class does show trends that can drive the classification. Most of the profanities are found in the `vandalism` class:
+
 ```{r profanity, cache=TRUE}
 # load list of profanities
 profanities <- read_lines(file = "data/en/profanities.txt")
 # a regex that is aware of wikisyntax
 wiki_regex <- "----|:{1,6}|\\*{1,4}|#{1,4}|={1,5}|\\{\\{|\\}\\}|\\[\\[|]]|\\w+"
+# setup for parallelism
+multidplyr::cluster_copy(cluster, 'bin_search')
+multidplyr::cluster_copy(cluster, 'profanities')
 
 edits %>%
   collect() %>%
@@ -291,10 +296,12 @@ edits %>%
   ) %>%
   select(class, word_list_lower) %>%
   unnest_longer(col = word_list_lower, values_to = "word") %>%
+  partition(cluster) %>%
   mutate(word = replace_na(word, ""),
          is_profanity = map_lgl(word, function(w) {
            bin_search(profanities, w) > 0
          })) %>%
+  collect() %>%
   group_by(class) %>%
   summarise(profanity_rate = sum(is_profanity) / n())
 ```
@@ -312,6 +319,42 @@ edits %>%
 ```
 
 TODO: Still need to elaborate here.
+
+### Evaluating performance
+
+There are multiple ways to evaluate the performance of a learning algorithm. Metrics are typically derived from the confusion matrix. That is, from the four possible predicted conditions: true positive (TP), true negative (TN), false positive (FP), or false negative (TP). Below we discussed our chosen metrics that allow us to compare our solution against both research classifiers as well as the current best implementation.
+
+#### Metric for comparison againt top classifiers from @Potthast-2010
+
+For imbalanced binary classification, a metric like $Accuracy = \frac{TP + TN}{TP + TN + FP +FN}$ can be misleading since we would get a high accuracy even if we always predict the majority class. In our case where the `vandalism` class is 7.38% of the dataset, always predicting majority class would yield 92.62% accuracy.
+
+Additionally, we need a metric that penalizes FP hits, since labeling bona fide contributions as `vandalism` is a particularly bad outcome for a system as Wikipedia that depends on volunteer contributions. Existing literature suggest that an appropriate metric for this situation is the "Precision-recall curve" (PRC). This curve allows us to visually compare the trade-off between precision and recall, provides visual separation when comparing alternative classifier curves, and by calculating the area under the curve (PR-AUC), we can summarize the performance to a single number @Potthast-2010, @Saito-2015.
+
+PRC are calculated as follows: 1) Implement a classification algorithm. 2) Use the algorithm to predict the probability of the 'positive' class (in our case `vandalism`). 3) Now calculate the confusion matrix of the algorithm while varying the threshold $\tau$ of binary classification between [0,1]. 4) Use the confusion matrix at each threshold $\tau$ to calculate the Precision and Recall, and plot the outcome as x and y, respectively.
+
+#### Metric for comparison against ClueBot NG @Wiki-User-ClueBotNG
+For completeness, we also compare our classifier to the current best bot implementation in the English Wikipedia. Only two performance metrics seem to be available: 40% TP-rate at fixed 0.1% FP rate ($TP-rate$), and 55% TP-rate at fixed 0.25% false positive rate @Wiki-User-ClueBotNG.
+
+These two data points can be used as reference points in aReceiver Operating Characteristic Curve (ROC Curve). A ROC Curve, in principle, is similar to a PRC curve, but instead we plot the true positive rate against the false positive rate. Although @Potthast-2010 finds ROC curves not the most appropriate for comparing vandalism classifiers, it is the only visual comparison that we can do against the limited data available from ClueBot NG's performance.
+
+#### Validation and test data
+
+In this work, the validation set will be 50% of source data. We do this to be comparable to the  classifiers discussed in [Potthast 2010], where a 50% validation set was used as well. Given half of the data will be used for validation, we opt to do the training using 10-fold cross validation.
+```{r data-split, include=FALSE, cache=TRUE}
+# validation set will be 50% of source data, to be comparable to [Potthast 2010].
+
+# data is imbalanced, but createDataPartition takes care of stratifying splits properly.
+set.seed(123, sample.kind = "Rounding")
+validation_index <-
+  createDataPartition(
+    y = edits %>% pull(class),
+    times = 1,
+    p = 0.5,
+    list = FALSE
+  )
+validation_edits <- edits %>% as_tibble() %>% .[validation_index, ]
+train_edits <- edits %>% as_tibble() %>% .[-validation_index, ]
+```
 
 ### Feature selection
 
@@ -344,34 +387,367 @@ Size statistic | `num_additions` | The number of separate additions as derived b
 Size statistic | `num_deletions` | The number of separate deletions as derived by the diff algorithm.
 Editor reputation | `is_anonymous` | Whether the editor is registered on Wikipedia or not.
 
+```{r features, include=FALSE, cache=TRUE}
+# copy function num_unique_chars into cluster
+multidplyr::cluster_copy(cluster, 'num_unique_chars')
+
+# character level features:
+character_features <- edits %>%
+  select(editid, additions) %>%
+  mutate(additions_as_string = map_chr(additions, str_c, collapse = "\n")) %>%
+  # Ratio of upper case chars to lower case chars (all chars)
+  mutate(
+    upper_to_lower_ratio =
+      (str_count(additions_as_string, "[A-Z]") + 1) / (str_count(additions_as_string, "[a-z]") + 1)
+  ) %>%
+  # Ratio of upper case chars to all chars
+  mutate(
+    upper_to_all_ratio =
+      (str_count(additions_as_string, "[A-Z]") + 1) / (str_count(additions_as_string, ".") + 1)
+  ) %>%
+  # Ratio of digits to all letters.
+  mutate(
+    digits_ratio =
+      (str_count(additions_as_string, "\\d") + 1) / (str_count(additions_as_string, ".") + 1)
+  ) %>%
+  # Ratio of special chars to all chars.
+  mutate(
+    special_chars_ratio =
+      (str_count(additions_as_string, "[^A-Za-z0-9]") + 1) / (str_count(additions_as_string, ".") + 1)
+  ) %>%
+  # Length of all inserted lines to the (1 / number of different chars)
+  mutate(
+    char_diversity =
+      str_length(additions_as_string) ^ (1 / num_unique_chars(additions_as_string))
+  ) %>%
+  # achievable compression ratio of all chars
+  # gzip chosen for its speed (https://cran.r-project.org/web/packages/brotli/vignettes/benchmarks.html)
+  mutate(
+    compression_ratio =
+      (map_int(additions_as_string, function(s) { length(as.raw(s)) }) + 1) /
+      (map_int(additions_as_string, function(s) { length(memCompress(s, type = "gzip")) }) + 1)
+  ) %>%
+  select(-additions, -additions_as_string) %>%
+  collect()
+
+# load word dictionaries
+profanities <- read_lines(file = "data/en/profanities.txt")
+pronouns <- read_lines(file = "data/en/pronouns.txt")
+contractions <- read_lines(file = "data/en/contractions.txt")
+superlatives <- read_lines(file = "data/en/superlatives.txt")
+wikisyntax <- read_lines(file = "data/global/wikisyntax.txt")
+
+# This tokenizer regex is wikisyntax aware.
+# matches:
+# "----" section break
+# indentation markers with ":", "*", "#" or "=".
+# link delimiters with "{{", "}}", "[[" or "]]"
+# any other regular word ( which would also include other wikisyntax )
+wiki_regex <- "----|:{1,6}|\\*{1,4}|#{1,4}|={1,5}|\\{\\{|\\}\\}|\\[\\[|]]|\\w+"
+
+# figure out most common words, but use only train_edits as to not overtrain
+common_words <- train_edits %>%
+  mutate(additions_as_string = map_chr(additions, str_c, collapse = "\n")) %>%
+  mutate(
+    word_list = map(str_match_all(additions_as_string, wiki_regex), as.vector),
+    word_list_lower = map(word_list, str_to_lower),
+  ) %>% select(editid, class, word_list_lower) %>%
+  unnest_longer(col = word_list_lower, values_to = "word") %>%
+  anti_join(stop_words) %>%
+  filter(!word %in% wikisyntax) %>%
+  filter(!str_detect(word, "^\\d+$")) %>% # no numbers
+  group_by(class, word) %>%
+  summarise(n = n()) %>%
+  arrange(desc(n))
+
+common_vandalism_words <- common_words %>%
+  filter(class == "vandalism") %>%
+  slice_head(n = 200)
+
+common_regular_words <- common_words %>%
+  filter(class == "regular") %>%
+  slice_head(n = 200)
+
+intersection_words <- common_vandalism_words %>%
+  inner_join(common_regular_words, by = "word")
+
+common_vandalism_words <- common_vandalism_words %>%
+  anti_join(intersection_words, by = "word") %>%
+  arrange(word) %>%
+  pull(word)
+
+common_regular_words <- common_regular_words %>%
+  anti_join(intersection_words, by = "word") %>%
+  arrange(word) %>%
+  pull(word)
+
+multidplyr::cluster_copy(cluster, 'profanities')
+multidplyr::cluster_copy(cluster, 'pronouns')
+multidplyr::cluster_copy(cluster, 'contractions')
+multidplyr::cluster_copy(cluster, 'superlatives')
+multidplyr::cluster_copy(cluster, 'wikisyntax')
+multidplyr::cluster_copy(cluster, 'common_vandalism_words')
+multidplyr::cluster_copy(cluster, 'common_regular_words')
+
+word_features <- edits %>%
+  collect() %>% # multidplyr doesn't like unnest_longer(), so let's do this section locally
+  select(editid, additions) %>%
+  mutate(
+    additions_as_string = map_chr(additions, str_c, collapse = "\n"),
+    word_list = map(str_match_all(additions_as_string, wiki_regex), as.vector),
+    word_list_lower = map(word_list, str_to_lower),
+  ) %>%
+  select(editid, word_list_lower) %>%
+  unnest_longer(col = word_list_lower, values_to = "word") %>%
+  partition(cluster) %>% # now leverage multidplyr
+  mutate(
+    word = replace_na(word, ""),
+    is_profanity = map_lgl(word, function(w) {
+      bin_search(profanities, w) > 0
+    }),
+    is_pronoun = map_lgl(word, function(w) {
+      bin_search(pronouns, w) > 0
+    }),
+    is_superlative = map_lgl(word, function(w) {
+      bin_search(superlatives, w) > 0
+    }),
+    is_contraction = map_lgl(word, function(w) {
+      bin_search(contractions, w) > 0
+    }),
+    is_wikisyntax = map_lgl(word, function(w) {
+      bin_search(wikisyntax, w) > 0
+    }),
+    is_common_vandalism = map_lgl(word, function(w) {
+      bin_search(common_vandalism_words, w) > 0
+    }),
+    is_common_regular = map_lgl(word, function(w) {
+      bin_search(common_regular_words, w) > 0
+    }),
+    word_length = str_length(word)
+  ) %>%
+  collect() %>%
+  group_by(editid) %>%
+  summarise(
+    profanity_count = sum(is_profanity),
+    pronoun_count = sum(is_pronoun),
+    superlative_count = sum(is_superlative),
+    contraction_count = sum(is_contraction),
+    wikisyntax_count = sum(is_wikisyntax),
+    common_vandalism_count = sum(is_common_vandalism),
+    common_regular_count = sum(is_common_regular),
+    longest_word = max(word_length)
+  )
+
+# edit comment features
+comment_features <- edits %>%
+  select(editid, editcomment) %>%
+  mutate(
+    comment_exists = !editcomment == "null" | is.na(editcomment),
+    comment_length = if_else(comment_exists, str_length(editcomment), 0L),
+    comment_is_revert =
+      str_starts(editcomment, fixed("Revert")) | # user revert
+      str_starts(editcomment, fixed("revert")) | # user revert
+      str_starts(editcomment, fixed("[[Help:Reverting|Reverted]] ")) | # user revert
+      str_starts(editcomment, fixed("[[WP:RBK|Reverted]]")) | # bot revert
+      str_starts(editcomment, fixed("[[WP:UNDO|Undid]]")), # bot undo ( aka late revert )
+    comment_is_bot = str_starts(editcomment, "\\[\\[WP:"),
+    # tokenize each comment
+    word_lists = map(str_match_all(editcomment, "\\w+"), as.vector),
+    word_lists_lower = map(word_lists, str_to_lower),
+    # for each token, lowercase, and check if there is a hit on profanity list
+    profanity_lists = map(word_lists_lower,
+                      function(word_list_lower) {
+                        map_lgl(word_list_lower, function(word) { bin_search(profanities, word) > 0 } )
+                      }),
+    # OR all word checks. if any TRUE, comment has profanity
+    comment_has_profanity = map_lgl(profanity_lists, function(list) { reduce(list, `|`, .init = FALSE) })
+  ) %>%
+  select(-editcomment, -word_lists, -word_lists_lower, -profanity_lists) %>%
+  collect()
+
+size_features <- edits %>%
+  select(editid, oldrevisionsize, newrevisionsize, additions, deletions) %>%
+  mutate(
+    size_delta = newrevisionsize - oldrevisionsize,
+    size_ratio = (newrevisionsize + 1) / (oldrevisionsize + 1),
+    num_additions = map_int(additions, length),
+    num_deletions = map_int(deletions, length)
+  ) %>%
+  select(-oldrevisionsize,-newrevisionsize,-additions,-deletions) %>%
+  collect()
+
+ip_address_regex <- "\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}"
+multidplyr::cluster_copy(cluster, 'ip_address_regex')
+
+editor_features <- edits %>%
+  select(editid, editor, edittime) %>%
+  mutate(is_anonymous = str_detect(editor, ip_address_regex)) %>%
+  select(editid, is_anonymous) %>%
+  collect()
+
+# prepare features as matrix to feed to algos
+all_features <-
+  character_features %>%
+  left_join(word_features, by = "editid") %>%
+  left_join(comment_features, by = "editid") %>%
+  left_join(size_features, by = "editid") %>%
+  left_join(editor_features, by = "editid") %>%
+  arrange(editid) %>% # make sure we align rows with class
+  select(-editid) %>%
+  as.matrix()
+
+#
+# split into train, test, and validation sets
+#
+golden_class <- edits %>% collect() %>% arrange(editid) %>% pull(class)
+validation_features <- all_features[validation_index, ]
+validation_class <- golden_class[validation_index]
+train_features <- all_features[-validation_index, ]
+train_class <- golden_class[-validation_index]
+```
+
+```{r rm-multiplyr-cluster, include=FALSE, cache=TRUE}
+# we are now done with multidplyr parallelism
+rm(cluster)
+```
 ### Relative effect of each feature
 In this section we show the effect of each feature separately.
 
-### Evaluating performance
-There are multiple ways to evaluate the performance of a learning algorithm. Metrics are typically derived from the confusion matrix. That is, from the four possible predicted conditions: true positive (TP), true negative (TN), false positive (FP), or false negative (TP). Below we discussed our chosen metrics that allow us to compare our solution againts both research classifiers as well as the current best implementation.
 
-#### Metric for comparison againt top classifiers from @Potthast-2010
-
-For imbalanced binary classification, a metric like $Accuracy = \frac{TP + TN}{TP + TN + FP +FN}$ can be misleading since we would get a high accuracy even if we always predict the majority class. In our case where the `vandalism` class is 7.38% of the dataset, always predicting majority class would yield 92.62% accuracy.
-
-Additionally, we need a metric that penalizes FP hits, since labeling bona fide contributions as `vandalism` is a particularly bad outcome for a system as Wikipedia that depends on volunteer contributions. Existing literature suggest that an appropriate metric for this situation is the "Precision-recall curve" (PRC). This curve allows us to visually compare the trade-off between precision and recall, provides visual separation when comparing alternative classifier curves, and by calculating the area under the curve (PR-AUC), we can summarize the performance to a single number @Potthast-2010, @Saito-2015.
-
-PRC are calculated as follows: 1) Implement a classification algorithm. 2) Use the algorithm to predict the probability of the 'positive' class (in our case `vandalism`). 3) Now calculate the confusion matrix of the algorithm while varying the threshold $\tau$ of binary classification between [0,1]. 4) Use the confusion matrix at each threshold $\tau$ to calculate the Precision and Recall, and plot the outcome as x and y, respectively.
-
-#### Metric for comparison against ClueBot NG @Wiki-User-ClueBotNG
-For completeness, we also compare our classifier to the current best bot implementation in the English Wikipedia. Only two performance metrics seem to be available: 40% TP-rate at fixed 0.1% FP rate ($TP-rate$), and 55% TP-rate at fixed 0.25% false positive rate @Wiki-User-ClueBotNG.
-
-These two data points can be used as reference points in aReceiver Operating Characteristic Curve (ROC Curve). A ROC Curve, in principle, is similar to a PRC curve, but instead we plot the true positive rate against the false positive rate. Although @Potthast-2010 finds ROC curves not the most appropriate for comparing vandalism classifiers, it is the only visual comparison that we can do against the limited data available from ClueBot NG's performance.
 
 
 ### Machine Learning Algorithm
+```{r ml-setup, include=FALSE, cache=TRUE}
 
-In this work we considered three different algorithms: K-nearest Neighbors, Neural Networks and Random Forest.
+# setup parallel cluster for caret
+library(doParallel)
+cl <- makePSOCKcluster(cores)
+registerDoParallel(cl)
+
+control <- trainControl(
+  method = "cv",
+  number = 10,
+  summaryFunction = prSummary, # this summary function includes PR-AUC
+  classProbs = TRUE, # this makes AUC calculation work
+  allowParallel = TRUE
+)
+```
+
+```{r knn, cache=TRUE, include=FALSE}
+#
+# kNN
+#
+set.seed(123, sample.kind = "Rounding")
+train_knn <- train(
+  x = train_features,
+  y = train_class,
+  method = "knn",
+  trControl = control,
+  tuneGrid = data.frame(k = c(3, 5, 7, 9, 11, 13, 15, 17, 19, 21)),
+  metric = "AUC", # PR-AUC
+  maximize = TRUE
+)
+```
+
+```{r knn-normalized, cache=TRUE, include=FALSE}
+#
+# kNN, with features normalized to [0,1]
+#
+set.seed(123, sample.kind = "Rounding")
+train_knn_normalized <- train(
+  x = train_features,
+  y = train_class,
+  method = "knn",
+  trControl = control,
+  tuneGrid = data.frame(k = c(3, 5, 7, 9, 11, 13, 15, 17, 19, 21)),
+  metric = "AUC", # PR-AUC
+  maximize = TRUE,
+  preProcess = "range" # normalize all features to [0,1]
+)
+```
+
+```{r knn-normalized-weigthed, cache=TRUE, include=FALSE}
+#
+# kNN, with features normalized to [0,1], and with weigthed neighboors
+#
+set.seed(123, sample.kind = "Rounding")
+train_knn_normalized_weigthed <- train(
+  x = train_features,
+  y = train_class,
+  method = "kknn",
+  trControl = control,
+  tuneGrid = expand.grid(
+    kmax = c(3, 5, 7, 9, 11, 13, 15, 17, 19, 21),
+    distance = c(1, 2), # try manhattan and euclidean distance
+    kernel = "optimal"
+  ),
+  metric = "AUC", # PR-AUC
+  maximize = TRUE,
+  preProcess = "range" # normalize all features to [0,1]
+)
+```
+
+```{r random-forest, include=FALSE, cache=TRUE}
+#
+# Random Forest
+#
+set.seed(123, sample.kind = "Rounding")
+train_rf <-  train(
+  x = train_features,
+  y = train_class,
+  method = "rf",
+  ntree = 1000,
+  trControl = control,
+  tuneGrid = data.frame(mtry = c(1, 2, 3, 4, 5, 10, 25, 50, 100)),
+  metric = "AUC", # PR-AUC
+  maximize = TRUE
+)
+```
 
 
+```{r neural-network, message=FALSE, warning=FALSE, cache=TRUE, include=FALSE}
+#
+# Neural Network
+#
+set.seed(123, sample.kind = "Rounding")
+train_neural <-  train(
+  x = train_features,
+  y = train_class,
+  method = "nnet",
+  trControl = control,
+  tuneGrid = expand.grid(
+    size = c(1, 2, 3, 4, 5, 10, 15, 20, 25),
+    decay = seq(0, 1, 0.1)
+  ),
+  metric = "AUC", # PR-AUC
+  maximize = TRUE,
+  maxit = 300 # max iterations
+)
+```
+
+```{r clean-up-caret, include=FALSE, cache=TRUE}
+# we are done with caret cluster
+stopCluster(cl)
+```
 (A methods/analysis section that explains the process and techniques used, including data cleaning, data exploration and visualization, any insights gained, and your modeling approach. At least two different models or algorithms must be used, with at least one being more advanced than linear or logistic regression for prediction problems. )
 
 ## Results
+In this work we considered three different algorithms: K-nearest Neighbors (kNN), Neural Networks (NN) and Random Forest (RF).
+
+### Training results
+
+#### kNN
+kNN was attractive because of its fast training time, serving as a baseline. We train it with $k = 3, 5, 7, \dots, 21$. Normalizing the features to the range $[0,1]$ helps the algorithm significantly, from a best training PR-AUC of `r max(train_knn$results$AUC)` at $k =$`r train_knn$bestTune$k` without normalization, to `r max(train_knn_normalized$results$AUC)` at $k =$`r train_knn_normalized$bestTune$k`. However, the greatest improvement is achieved when we normalize and weight closer neighboors more. In a weigthed kNN with same $k$ range, we obtain a best training PR-AUC of `r max(train_knn_normalized_weigthed$results$AUC)` at $k =$`r train_knn_normalized_weigthed$bestTune$kmax`. The weighted kNN algorithm allows us to specify the distance metric. We considered Manhattan and Euclidean distances, finding that the Manhattan distance achieves marginally better performance.
+
+```{r ml-parameter-tuning, cache=TRUE, fig.show='hold', warning=FALSE}
+ggplot(train_knn)
+ggplot(train_rf)
+ggplot(train_neural)
+```
+
+#### Neural networks
+
+Neural Networks (NN) were interesting to consider since there is established use in Wikipedia for their ClueBot NG bot @Wiki-User-ClueBotNG. We chose a NN that requires a `size` and `decay` parameter. The `size` relates to the number of neurons in the hidden layer of the network. It is recommended to use as many neurons as neccesary, but not more, since extra neurons may overtrain the network. Similarly, the `decay` parameter is a form of regularization that penalizes the NN optimization function as to help not overtrain. We consider $size = 1, 2, 3, 4, 5, 10, 15, 20, 25$ and $decay = 0, 0.1, 0.2, \dots, 1$. We find a best training PR-AUC of `r max(train_neural$results$AUC)` with $size =$ `r train_neural$bestTune$size` and $decay =$ `r train_neural$bestTune$decay`.
 
 (A results section that presents the modeling results and discusses the model performance.)
 
