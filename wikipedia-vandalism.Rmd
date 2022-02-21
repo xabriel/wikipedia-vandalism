@@ -687,23 +687,6 @@ train_knn_normalized_weigthed <- train(
 )
 ```
 
-```{r random-forest, include=FALSE, cache=TRUE}
-#
-# Random Forest
-#
-set.seed(123, sample.kind = "Rounding")
-train_rf <-  train(
-  x = train_features,
-  y = train_class,
-  method = "rf",
-  ntree = 1000,
-  trControl = control,
-  tuneGrid = data.frame(mtry = c(1, 2, 3, 4, 5, 10, 25, 50, 100)),
-  metric = "AUC", # PR-AUC
-  maximize = TRUE
-)
-```
-
 
 ```{r neural-network, message=FALSE, warning=FALSE, cache=TRUE, include=FALSE}
 #
@@ -725,6 +708,57 @@ train_neural <-  train(
 )
 ```
 
+```{r random-forest-150, include=FALSE, cache=TRUE}
+#
+# Random Forest 150
+#
+set.seed(123, sample.kind = "Rounding")
+train_rf_150 <-  train(
+  x = train_features,
+  y = train_class,
+  method = "rf",
+  ntree = 150,
+  trControl = control,
+  tuneGrid = data.frame(mtry = c(1, 2, 3, 4, 5, 10, 25, 50, 100)),
+  metric = "AUC", # PR-AUC
+  maximize = TRUE
+)
+```
+
+```{r random-forest-500, include=FALSE, cache=TRUE}
+#
+# Random Forest 500
+#
+set.seed(123, sample.kind = "Rounding")
+train_rf_500 <-  train(
+  x = train_features,
+  y = train_class,
+  method = "rf",
+  ntree = 500,
+  trControl = control,
+  tuneGrid = data.frame(mtry = c(1, 2, 3, 4, 5, 10, 25, 50, 100)),
+  metric = "AUC", # PR-AUC
+  maximize = TRUE
+)
+```
+
+```{r random-forest-1000, include=FALSE, cache=TRUE}
+#
+# Random Forest 1000
+#
+set.seed(123, sample.kind = "Rounding")
+train_rf_1000 <-  train(
+  x = train_features,
+  y = train_class,
+  method = "rf",
+  ntree = 1000,
+  trControl = control,
+  tuneGrid = data.frame(mtry = c(1, 2, 3, 4, 5, 10, 25, 50, 100)),
+  metric = "AUC", # PR-AUC
+  maximize = TRUE
+)
+```
+
 ```{r clean-up-caret, include=FALSE, cache=TRUE}
 # we are done with caret cluster
 stopCluster(cl)
@@ -737,19 +771,131 @@ In this work we considered three different algorithms: K-nearest Neighbors (kNN)
 ### Training results
 
 #### kNN
-kNN was attractive because of its fast training time, serving as a baseline. We train it with $k = 3, 5, 7, \dots, 21$. Normalizing the features to the range $[0,1]$ helps the algorithm significantly, from a best training PR-AUC of `r max(train_knn$results$AUC)` at $k =$`r train_knn$bestTune$k` without normalization, to `r max(train_knn_normalized$results$AUC)` at $k =$`r train_knn_normalized$bestTune$k`. However, the greatest improvement is achieved when we normalize and weight closer neighboors more. In a weigthed kNN with same $k$ range, we obtain a best training PR-AUC of `r max(train_knn_normalized_weigthed$results$AUC)` at $k =$`r train_knn_normalized_weigthed$bestTune$kmax`. The weighted kNN algorithm allows us to specify the distance metric. We considered Manhattan and Euclidean distances, finding that the Manhattan distance achieves marginally better performance.
-
-```{r ml-parameter-tuning, cache=TRUE, fig.show='hold', warning=FALSE}
-ggplot(train_knn)
-ggplot(train_rf)
-ggplot(train_neural)
-```
+kNN was attractive because of its fast training time, serving as a baseline. We train it with $k = 3, 5, 7, \dots, 21$. Normalizing the features to the range $[0,1]$ helps the algorithm significantly, from a best training PR-AUC of `r max(train_knn$results$AUC)` at $k =$`r train_knn$bestTune$k` without normalization, to `r max(train_knn_normalized$results$AUC)` at $k =$`r train_knn_normalized$bestTune$k`. However, the greatest improvement is achieved when we normalize and weight closer neighbors more. In a weighted kNN with same $k$ range, we obtain a best training PR-AUC of `r max(train_knn_normalized_weigthed$results$AUC)` at $k =$`r train_knn_normalized_weigthed$bestTune$kmax`. The weighted kNN algorithm allows us to specify the distance metric. We considered Manhattan and Euclidean distances, finding that the Manhattan distance achieves marginally better performance.
 
 #### Neural networks
 
 Neural Networks (NN) were interesting to consider since there is established use in Wikipedia for their ClueBot NG bot @Wiki-User-ClueBotNG. We chose a NN that requires a `size` and `decay` parameter. The `size` relates to the number of neurons in the hidden layer of the network. It is recommended to use as many neurons as neccesary, but not more, since extra neurons may overtrain the network. Similarly, the `decay` parameter is a form of regularization that penalizes the NN optimization function as to help not overtrain. We consider $size = 1, 2, 3, 4, 5, 10, 15, 20, 25$ and $decay = 0, 0.1, 0.2, \dots, 1$. We find a best training PR-AUC of `r max(train_neural$results$AUC)` with $size =$ `r train_neural$bestTune$size` and $decay =$ `r train_neural$bestTune$decay`.
 
+#### Random Forest
+
+Random forests have also been successfully used for Wikipedia vandalism @Potthast-2010, @MolaVelasco-2012. The chosen algorithm can be tuned with two variables: `ntree`, which is the number of trees in the forest, and `mtry`, the number of randomly chosen features at each split point. We train with $ntree = 150, 500, 1000$, and $mtry = 1, 2, 3, 4, 5, 10, 25, 50, 100$. We find a best training PR-AUC of `r max(train_rf_1000$results$AUC)` with $ntree = 1000$ and $mtry = 4$.
+
+#### Summary of training results
+Detector | Best training PR-AUC                             | Parameters
+---------|--------------------------------------------------|-----------
+kNN      | `max(train_knn_normalized_weigthed$results$AUC)` | $k =$`r train_knn_normalized_weigthed$bestTune$kmax`, $distance = 1$, $kernel = optional$
+NN       | `max(train_neural$results$AUC)`                  | $size =$ `r train_neural$bestTune$size`, $decay =$ `r train_neural$bestTune$decay`
+RF       | `max(train_rf_1000$results$AUC)`                 | $ntree = 1000$ and $mtry = 4$
+
 (A results section that presents the modeling results and discusses the model performance.)
+
+### Validation results
+```{r validation-predictions, cache=TRUE}
+pred_knn <-
+  predict(train_knn, newdata = validation_features, type="prob")
+pred_knn_normalized <-
+  predict(train_knn_normalized, newdata = validation_features, type="prob")
+pred_knn_normalized_weigthed <-
+  predict(train_knn_normalized_weigthed, newdata = validation_features, type="prob")
+
+pred_neural <- predict(train_neural, newdata = validation_features, type="prob")
+
+pred_rf_150 <- predict(train_rf_150, newdata = validation_features, type="prob")
+pred_rf_500 <- predict(train_rf_500, newdata = validation_features, type="prob")
+pred_rf_1000 <- predict(train_rf_1000, newdata = validation_features, type="prob")
+
+set.seed(123, sample.kind = "Rounding")
+pred_random <- sample(x = c(0,1), size = nrow(validation_features), replace = TRUE, prob = c(0.5,0.5))
+
+# dataframe with truth and 'positive' class (vandalism) probability
+predictions = tibble(
+  truth = validation_class,
+  knn = pred_knn$vandalism,
+  knn_normalized = pred_knn_normalized$vandalism,
+  knn_normalized_weigthed = pred_knn_normalized_weigthed$vandalism,
+  nn = pred_neural$vandalism,
+  rf_150 = pred_rf_150$vandalism,
+  rf_500 = pred_rf_500$vandalism,
+  rf_1000 = pred_rf_1000$vandalism,
+  random = pred_random
+)
+```
+
+```{r pr-curves, cache=TRUE}
+pr_curves <- bind_rows(
+  pr_curve(predictions, truth = "truth", knn) %>% add_column(model = "knn"),
+  pr_curve(predictions, truth = "truth", knn_normalized) %>% add_column(model = "knn_normalized"),
+  pr_curve(predictions, truth = "truth", knn_normalized_weigthed) %>% add_column(model = "knn_normalized_weigthed"),
+  pr_curve(predictions, truth = "truth", nn) %>% add_column(model = "nn"),
+  pr_curve(predictions, truth = "truth", rf_150) %>% add_column(model = "rf_150"),
+  pr_curve(predictions, truth = "truth", rf_500) %>% add_column(model = "rf_500"),
+  pr_curve(predictions, truth = "truth", rf_1000) %>% add_column(model = "rf_1000"),
+  pr_curve(predictions, truth = "truth", random) %>% add_column(model = "random")
+)
+
+pr_curves %>%
+  ggplot(aes(x = recall, y = precision, color = model)) +
+  geom_line() +
+  ggtitle("PR Curves of all tested algorithms")
+```
+
+```{r roc-curves, cache=TRUE}
+roc_curves <- bind_rows(
+  roc_curve(predictions, truth = "truth", knn) %>% add_column(model = "knn"),
+  roc_curve(predictions, truth = "truth", knn_normalized) %>% add_column(model = "knn_normalized"),
+  roc_curve(predictions, truth = "truth", knn_normalized_weigthed) %>% add_column(model = "knn_normalized_weigthed"),
+  roc_curve(predictions, truth = "truth", nn) %>% add_column(model = "nn"),
+  roc_curve(predictions, truth = "truth", rf_150) %>% add_column(model = "rf_150"),
+  roc_curve(predictions, truth = "truth", rf_500) %>% add_column(model = "rf_500"),
+  roc_curve(predictions, truth = "truth", rf_1000) %>% add_column(model = "rf_1000"),
+  roc_curve(predictions, truth = "truth", random) %>% add_column(model = "random")
+)
+
+roc_curves %>%
+  ggplot(aes(x = 1 - specificity, y = sensitivity, color = model)) +
+  geom_line() +
+  ggtitle("ROC Curves of all tested algorithms") +
+  ylab("sensitivity (TP rate)") +
+  xlab("1 - specificity (FP rate)")
+```
+
+
+```{r pr-auc, cache=TRUE}
+pr_aocs <- bind_rows(
+  pr_auc(predictions, truth = "truth", knn) %>% add_column(model = "knn"),
+  pr_auc(predictions, truth = "truth", knn_normalized) %>% add_column(model = "knn_normalized"),
+  pr_auc(predictions, truth = "truth", knn_normalized_weigthed) %>% add_column(model = "knn_normalized_weigthed"),
+  pr_auc(predictions, truth = "truth", nn) %>% add_column(model = "nn"),
+  pr_auc(predictions, truth = "truth", rf_150) %>% add_column(model = "rf_150"),
+  pr_auc(predictions, truth = "truth", rf_500) %>% add_column(model = "rf_500"),
+  pr_auc(predictions, truth = "truth", rf_1000) %>% add_column(model = "rf_1000"),
+  pr_auc(predictions, truth = "truth", random) %>% add_column(model = "random")
+)
+
+pr_aocs %>%
+  rename("PR-AUC" = .estimate) %>%
+  select("PR-AUC", model) %>%
+  arrange("PR-AUC")
+```
+
+```{r roc-auc, cache=TRUE}
+roc_aocs <- bind_rows(
+  roc_auc(predictions, truth = "truth", knn) %>% add_column(model = "knn"),
+  roc_auc(predictions, truth = "truth", knn_normalized) %>% add_column(model = "knn_normalized"),
+  roc_auc(predictions, truth = "truth", knn_normalized_weigthed) %>% add_column(model = "knn_normalized_weigthed"),
+  roc_auc(predictions, truth = "truth", nn) %>% add_column(model = "nn"),
+  roc_auc(predictions, truth = "truth", rf_150) %>% add_column(model = "rf_150"),
+  roc_auc(predictions, truth = "truth", rf_500) %>% add_column(model = "rf_500"),
+  roc_auc(predictions, truth = "truth", rf_1000) %>% add_column(model = "rf_1000"),
+  roc_auc(predictions, truth = "truth", random) %>% add_column(model = "random")
+)
+
+roc_aocs %>%
+  rename("ROC-AUC" = .estimate) %>%
+  select("ROC-AUC", model) %>%
+  arrange("ROC-AUC")
+```
 
 ## Conclusion
 
