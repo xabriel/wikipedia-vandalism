@@ -704,7 +704,8 @@ train_neural <-  train(
   ),
   metric = "AUC", # PR-AUC
   maximize = TRUE,
-  maxit = 300 # max iterations
+  maxit = 300, # max iterations
+  preProcess = "range" # normalize all features to [0,1]
 )
 ```
 
@@ -721,7 +722,8 @@ train_rf_150 <-  train(
   trControl = control,
   tuneGrid = data.frame(mtry = c(1, 2, 3, 4, 5, 10, 25, 50, 100)),
   metric = "AUC", # PR-AUC
-  maximize = TRUE
+  maximize = TRUE,
+  preProcess = "range" # normalize all features to [0,1]
 )
 ```
 
@@ -738,7 +740,8 @@ train_rf_500 <-  train(
   trControl = control,
   tuneGrid = data.frame(mtry = c(1, 2, 3, 4, 5, 10, 25, 50, 100)),
   metric = "AUC", # PR-AUC
-  maximize = TRUE
+  maximize = TRUE,
+  preProcess = "range" # normalize all features to [0,1]
 )
 ```
 
@@ -755,7 +758,8 @@ train_rf_1000 <-  train(
   trControl = control,
   tuneGrid = data.frame(mtry = c(1, 2, 3, 4, 5, 10, 25, 50, 100)),
   metric = "AUC", # PR-AUC
-  maximize = TRUE
+  maximize = TRUE,
+  preProcess = "range" # normalize all features to [0,1]
 )
 ```
 
@@ -930,12 +934,81 @@ roc_curves %>%
   xlab("1 - specificity (FP rate)")
 ```
 
+### Comparison against top classifier from @Potthast-2010
+```{r potthast-comparison, cache=TRUE}
+# load in data from 3 best algorithm from Potthast
+archivePath <- "data/pan-wikipedia-vandalism-detection-2010/molavelasco10-runs/"
+archiveName <- "molavelasco10-run-2010-06-23-1103.txt.zip"
+fileName <- "molavelasco10-run-2010-06-23-1103.txt"
+unzip(paste(archivePath, archiveName, sep = ""),
+      exdir = archivePath,
+      files = c(fileName))
+
+molaVelascoRun <- read_delim(
+  file = paste(archivePath, fileName, sep = ""),
+  delim = " ",
+  col_names = c("oldrevisionid", "newrevisionid", "prediction", "probability"),
+  col_types = cols(
+    oldrevisionid = col_integer(),
+    newrevisionid = col_integer(),
+    prediction = col_character(),
+    probability = col_double()
+  )
+) %>% mutate(
+  prediction = factor(
+    if_else(prediction == "R", "regular", "vandalism"),
+    levels = c("vandalism", "regular"))
+) %>% right_join(validation_edits, by = c("oldrevisionid", "newrevisionid")) %>%
+  select(editid, oldrevisionid, newrevisionid, class, prediction, probability)
+
+comparison_pr_curves <- bind_rows(
+  pr_curve(predictions, truth = "truth", rf_1000) %>%
+    add_column(model = "Random Forest with 1000 trees"),
+  pr_curve(molaVelascoRun, truth = "class", probability) %>%
+    add_column(model = "Mola Velasco 2010")
+)
+
+comparison_pr_curves %>%
+  ggplot(aes(x = recall, y = precision, color = model)) +
+  geom_line() +
+  ggtitle("PR Curves of our best algorithm compared with best of Potthast-2010")
+
+pr_aocs <- bind_rows(
+  pr_auc(predictions, truth = "truth", rf_1000) %>%
+    add_column(model = "Random Forest with 1000 trees"),
+  pr_auc(molaVelascoRun, truth = "class", probability) %>%
+    add_column(model = "Mola Velasco 2010")
+)
+
+roc_aocs <- bind_rows(
+  roc_auc(predictions, truth = "truth", rf_1000) %>%
+    add_column(model = "Random Forest with 1000 trees"),
+  roc_auc(molaVelascoRun, truth = "class", probability) %>%
+    add_column(model = "Mola Velasco 2010")
+)
+
+pr_aocs <- pr_aocs %>%
+  rename("PR-AUC" = .estimate) %>%
+  select("PR-AUC", model)
+
+roc_aocs <- roc_aocs %>%
+  rename("ROC-AUC" = .estimate) %>%
+  select("ROC-AUC", model)
+
+pr_aocs %>%
+  left_join(roc_aocs, by = "model") %>%
+  select(model, "PR-AUC", "ROC-AUC") %>%
+  arrange("PR-AUC") %>%
+  knitr::kable(caption = "PR-AUC and ROC-AUC of best algorithm and best from Potthast-2010")
+```
+
+
 ### Comparison against ClueBot NG
 
-```{r cluebot-comparison, cache=TRUE}
+```{r cluebot-comparison, cache=TRUE, warning=FALSE}
 comparison_roc_curves <- bind_rows(
-  roc_curve(predictions, truth = "truth", rf_500) %>%
-    add_column(model = "Random Forest with 500 trees"),
+  roc_curve(predictions, truth = "truth", rf_1000) %>%
+    add_column(model = "Random Forest with 1000 trees"),
   tibble(specificity = c(1 - 0.01, 1 - 0.025), sensitivity = c(0.4,  0.55)) %>%
     add_column(model = "ClueBot NG")
 )
@@ -950,7 +1023,7 @@ comparison_ggplot <- comparison_roc_curves %>%
   geom_point(data = cluebot,
              mapping = aes(x = 1 - specificity, y = sensitivity),
              inherit.aes = FALSE) +
-  ggtitle("ROC Curves of best algorithm compared with data from ClueBot NG") +
+  ggtitle("ROC Curve of best algorithm and data from ClueBot NG") +
   ylab("sensitivity (TP rate)") +
   xlab("1 - specificity (FP rate)")
 
@@ -958,7 +1031,7 @@ comparison_ggplot
 
 # plot it against zoomed in
 comparison_ggplot +
-  ggtitle("Zoomed in ROC Curves of best algorithm compared with data from ClueBot NG") +
+  ggtitle("Zoomed in ROC Curve of best algorithm and data from ClueBot NG") +
   xlim(0, 0.03) +
   ylim(0.35, 0.60)
 ```
@@ -966,6 +1039,12 @@ Our algorithm with the best PR-AUC, a Random Forest with 500 trees, has an TP-ra
 
 ## Conclusion
 
-(A conclusion section that gives a brief summary of the report, its potential impact, its limitations, and future work. )
+In this report we have discussed the problem of detecting vandalism in Wikipedia, an online encyclopedia that anyone can edit. We utilize the PAN Wikipedia 2010 Vandalism corpus to derive a set of 24 features. We discuss, train and validate a set of binary classification algorithms. We find that Random Forests yield the best performance both from a PR-AUC, as well as a ROC-AUC perspective. Specifically, a Random Forest with 500 trees and ... yield the best performance.
+
+When we compare our best classifier with the best from @Potthast-2010, we find virtually equivalent PR-AUC performance. When we compare it against @Wiki-User-ClueBotNG, Wikipedia's current production classifier, we find our solution has a 5% advantage at a FP-rate of 0.01%. Although our solutions are head to head with both, we do not believe a 5% gain justifies the engineering cost required to deploy such a solution to production.
+
+In this work we focused on maximizing the PR-AUC metric for our work to be comparable to @Potthast-2010. We find that this metric has strong research merit, but it doesn't focus on the core Wikipedia problem: they need a sufficiently low FP-rate to be able to justify a deployment into production that doesn't deter bona fide contributions. In future work, we will focus on improving the $TP-rate$ with the constraint that the $FP-rate <= 0.01%$.
+
+Additionally, a production solution for Wikipedia vandalism should strive to be easily interpretable. A user that makes a contribution that is classified as `vandalism` should understand why that is the case. We would like to explore if simpler, self-describing algorithms such as decision trees could achieve reasonable FP-rates while being less opaque for lay users. Likewise, the use of features such as whether a user is anonymous or not can be interpreted as a inequitable treatment of contributors @Laat-2015. It would be interesting then to explore how to develop anti-vandalism systems that take this critique into account.
 
 `r if (knitr::is_html_output()) '## References {-}'`
