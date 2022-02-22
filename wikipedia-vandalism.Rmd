@@ -610,11 +610,6 @@ train_class <- golden_class[-validation_index]
 # we are now done with multidplyr parallelism
 rm(cluster)
 ```
-### Relative effect of each feature
-In this section we show the effect of each feature separately.
-
-
-
 
 ### Machine Learning Algorithm
 ```{r ml-setup, include=FALSE, cache=TRUE}
@@ -704,8 +699,7 @@ train_neural <-  train(
   ),
   metric = "AUC", # PR-AUC
   maximize = TRUE,
-  maxit = 300, # max iterations
-  preProcess = "range" # normalize all features to [0,1]
+  maxit = 300 # max iterations
 )
 ```
 
@@ -779,11 +773,11 @@ kNN was attractive because of its fast training time, serving as a baseline. We 
 
 #### Neural networks
 
-Neural Networks (NN) were interesting to consider since there is established use in Wikipedia for their ClueBot NG bot @Wiki-User-ClueBotNG. We chose a NN that requires a `size` and `decay` parameter. The `size` relates to the number of neurons in the hidden layer of the network. It is recommended to use as many neurons as neccesary, but not more, since extra neurons may overtrain the network. Similarly, the `decay` parameter is a form of regularization that penalizes the NN optimization function as to help not overtrain. We consider $size = 1, 2, 3, 4, 5, 10, 15, 20, 25$ and $decay = 0, 0.1, 0.2, \dots, 1$. We find a best training PR-AUC of `r max(train_neural$results$AUC)` with $size =$ `r train_neural$bestTune$size` and $decay =$ `r train_neural$bestTune$decay`.
+Neural Networks (NN) were interesting to consider since there is established use in Wikipedia for their ClueBot NG bot @Wiki-User-ClueBotNG. We chose a NN that requires a `size` and `decay` parameter. The `size` relates to the number of neurons in the hidden layer of the network. It is recommended to use as many neurons as neccesary, but not more, since extra neurons may overtrain the network. Similarly, the `decay` parameter is a form of regularization that penalizes the NN optimization function as to help not overtrain. We consider $size = 1, 2, 3, 4, 5, 10, 15, 20, 25$ and $decay = 0, 0.1, 0.2, \dots, 1$. We tried regularizing the features to [0,1] but that only hurt performance. We find a best training PR-AUC of `r max(train_neural$results$AUC)` with $size =$ `r train_neural$bestTune$size` and $decay =$ `r train_neural$bestTune$decay`.
 
 #### Random Forest
 
-Random forests have also been successfully used for Wikipedia vandalism @Potthast-2010, @MolaVelasco-2012. The chosen algorithm can be tuned with two variables: `ntree`, which is the number of trees in the forest, and `mtry`, the number of randomly chosen features at each split point. We train with $ntree = 150, 500, 1000$, and $mtry = 1, 2, 3, 4, 5, 10, 25, 50, 100$. We find a best training PR-AUC of `r max(train_rf_1000$results$AUC)` with $ntree = 1000$ and $mtry = 4$.
+Random forests have also been successfully used for Wikipedia vandalism @Potthast-2010, @MolaVelasco-2012. The chosen algorithm can be tuned with two variables: `ntree`, which is the number of trees in the forest, and `mtry`, the number of randomly chosen features at each split point. We train with $ntree = 150, 500, 1000$, and $mtry = 1, 2, 3, 4, 5, 10, 25, 50, 100$. All features were regularized to [0,1] as this yielded a minor improvement. We find a best training PR-AUC of `r max(train_rf_1000$results$AUC)` with $ntree = 1000$ and $mtry = 4$.
 
 #### Summary of training results
 Detector | Best training PR-AUC                             | Parameters
@@ -795,7 +789,7 @@ RF       | `max(train_rf_1000$results$AUC)`                 | $ntree = 1000$ and
 (A results section that presents the modeling results and discusses the model performance.)
 
 ### Validation results
-```{r validation-predictions, cache=TRUE}
+```{r validation-predictions, cache=TRUE, include=FALSE}
 pred_knn <-
   predict(train_knn, newdata = validation_features, type="prob")
 pred_knn_normalized <-
@@ -825,8 +819,8 @@ predictions = tibble(
   random = pred_random
 )
 ```
-
-```{r validation-aocs, cache=TRUE}
+Below we can find a table summarizing the results for PR-AUC and ROC-AUC metrics when using the validation set. We find that the best algorithm, as with the training set, is the Random Forest with 1000 trees.
+```{r validation-aocs, cache=TRUE, include=FALSE}
 pr_aocs <- bind_rows(
   pr_auc(predictions, truth = "truth", knn) %>%
     add_column(model = "kNN"),
@@ -879,8 +873,8 @@ pr_aocs %>%
   arrange("PR-AUC") %>%
   knitr::kable(caption = "PR-AUC and ROC-AUC of all tested algorithms")
 ```
-
-```{r pr-curves, cache=TRUE}
+The PR Curves below show that the three Random Forest classifiers are clearly in the lead over the whole space, while the Neural Network classifier is a distant 4th place. The three kNN classifiers perform the worst.
+```{r pr-curves, echo=FALSE, cache=TRUE}
 pr_curves <- bind_rows(
   pr_curve(predictions, truth = "truth", knn) %>%
     add_column(model = "kNN"),
@@ -896,7 +890,9 @@ pr_curves <- bind_rows(
     add_column(model = "Random Forest with 500 trees"),
   pr_curve(predictions, truth = "truth", rf_1000) %>%
     add_column(model = "Random Forest with 1000 trees"),
+  # fix random curve as it should be a constant line approx at the vandalism/regular ratio
   pr_curve(predictions, truth = "truth", random) %>%
+    mutate(precision = 0.073) %>%
     add_column(model = "Random Classifier")
 )
 
@@ -905,8 +901,9 @@ pr_curves %>%
   geom_line() +
   ggtitle("PR Curves of all tested algorithms")
 ```
+In ROC space, we can appreciate mostly the same ranking as in PR space:
 
-```{r roc-curves, cache=TRUE}
+```{r roc-curves, echo=FALSE, cache=TRUE}
 roc_curves <- bind_rows(
   roc_curve(predictions, truth = "truth", knn) %>%
     add_column(model = "kNN"),
@@ -935,7 +932,9 @@ roc_curves %>%
 ```
 
 ### Comparison against top classifier from @Potthast-2010
-```{r potthast-comparison, cache=TRUE}
+
+In this comparison, we can see that our solution performs very similarly as the best from @Potthast-2010. In PR Curve space, we perform slightly better on recall values between 0.4 and 0.75, but otherwise their solution has the advantage.
+```{r potthast-comparison, echo=FALSE, cache=TRUE}
 # load in data from 3 best algorithm from Potthast
 archivePath <- "data/pan-wikipedia-vandalism-detection-2010/molavelasco10-runs/"
 archiveName <- "molavelasco10-run-2010-06-23-1103.txt.zip"
@@ -1005,7 +1004,9 @@ pr_aocs %>%
 
 ### Comparison against ClueBot NG
 
-```{r cluebot-comparison, cache=TRUE, warning=FALSE}
+Our algorithm with the best PR-AUC, a Random Forest with 1000 trees, has an TP-rate of ~42.5% at 0.01% FP-rate, and ~57.5% TP-rate at 0.025% FP-rate. This compares favorably against ClueBot NG, resulting in a ~5% improvement overall. Below we present a ROC Curve that has been zoomed in to detail the only two known data points from ClueBot NG @Wiki-User-ClueBotNG.
+
+```{r cluebot-comparison, echo=FALSE, warning=FALSE, cache=TRUE}
 comparison_roc_curves <- bind_rows(
   roc_curve(predictions, truth = "truth", rf_1000) %>%
     add_column(model = "Random Forest with 1000 trees"),
@@ -1025,9 +1026,9 @@ comparison_ggplot <- comparison_roc_curves %>%
              inherit.aes = FALSE) +
   ggtitle("ROC Curve of best algorithm and data from ClueBot NG") +
   ylab("sensitivity (TP rate)") +
-  xlab("1 - specificity (FP rate)")
+  xlab("1 - specificity (FP rate)") +
 
-comparison_ggplot
+# comparison_ggplot
 
 # plot it against zoomed in
 comparison_ggplot +
@@ -1035,16 +1036,17 @@ comparison_ggplot +
   xlim(0, 0.03) +
   ylim(0.35, 0.60)
 ```
-Our algorithm with the best PR-AUC, a Random Forest with 500 trees, has an TP-rate of ~42.5% at 0.01% FP-rate, and ~57.5% TP-rate at 0.025% FP-rate. The more important measure is the former, since that is what is being used in production at Wikipedia.
 
 ## Conclusion
 
-In this report we have discussed the problem of detecting vandalism in Wikipedia, an online encyclopedia that anyone can edit. We utilize the PAN Wikipedia 2010 Vandalism corpus to derive a set of 24 features. We discuss, train and validate a set of binary classification algorithms. We find that Random Forests yield the best performance both from a PR-AUC, as well as a ROC-AUC perspective. Specifically, a Random Forest with 500 trees and ... yield the best performance.
+In this report we have discussed the problem of detecting vandalism in Wikipedia, an online encyclopedia that anyone can edit. We utilize the PAN Wikipedia 2010 Vandalism corpus to derive a set of 24 features. We discuss, train and validate a set of binary classification algorithms. We find that Random Forests yield the best performance both from a PR-AUC, as well as a ROC-AUC perspective. Specifically, a Random Forest with 1000 trees and 3 random features at each split point yields the best performance.
 
-When we compare our best classifier with the best from @Potthast-2010, we find virtually equivalent PR-AUC performance. When we compare it against @Wiki-User-ClueBotNG, Wikipedia's current production classifier, we find our solution has a 5% advantage at a FP-rate of 0.01%. Although our solutions are head to head with both, we do not believe a 5% gain justifies the engineering cost required to deploy such a solution to production.
+When we compare our best classifier with the best from @Potthast-2010, we find virtually equivalent PR-AUC performance. When we compare it against @Wiki-User-ClueBotNG, Wikipedia's current production classifier, we find our solution has a ~5% advantage at a FP-rate of 0.01%.
 
-In this work we focused on maximizing the PR-AUC metric for our work to be comparable to @Potthast-2010. We find that this metric has strong research merit, but it doesn't focus on the core Wikipedia problem: they need a sufficiently low FP-rate to be able to justify a deployment into production that doesn't deter bona fide contributions. In future work, we will focus on improving the $TP-rate$ with the constraint that the $FP-rate <= 0.01%$.
+Although our solutions are head to head with both research and production systems, we do not believe a 5% gain justifies the engineering cost required to deploy such a new classifier to production. We focused on maximizing the PR-AUC metric for our work to be comparable to @Potthast-2010. We find that this metric has strong research merit, but it doesn't focus on the core Wikipedia problem: they need a sufficiently low FP-rate to be able to justify a vandalism bot that doesn't deter bona fide contributions. In future work, we will focus on improving the $TP-rate$ with the constraint that the $FP-rate <= 0.01%$.
 
-Additionally, a production solution for Wikipedia vandalism should strive to be easily interpretable. A user that makes a contribution that is classified as `vandalism` should understand why that is the case. We would like to explore if simpler, self-describing algorithms such as decision trees could achieve reasonable FP-rates while being less opaque for lay users. Likewise, the use of features such as whether a user is anonymous or not can be interpreted as a inequitable treatment of contributors @Laat-2015. It would be interesting then to explore how to develop anti-vandalism systems that take this critique into account.
+It is reasonable to expect that a production solution for Wikipedia vandalism should strive to be easily interpretable. A user that makes a contribution that is classified as `vandalism` should understand why that is the case. We believe a comprehensive report like ours helps with this interpretabilty issue. However, we would like to explore if simpler, self-describing algorithms such as Decision Trees could achieve reasonable FP-rates while being less opaque for lay users.
+
+Additionally, it has been argued that the use of features such as whether a user is anonymous or not can be an inequitable treatment of contributors @Laat-2015. It would be interesting then to explore in future work how to develop anti-vandalism systems that take this critique into account.
 
 `r if (knitr::is_html_output()) '## References {-}'`
