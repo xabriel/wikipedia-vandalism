@@ -824,25 +824,41 @@ predictions = tibble(
 
 ```{r validation-aocs, cache=TRUE}
 pr_aocs <- bind_rows(
-  pr_auc(predictions, truth = "truth", knn) %>% add_column(model = "kNN"),
-  pr_auc(predictions, truth = "truth", knn_normalized) %>% add_column(model = "Normalized kNN"),
-  pr_auc(predictions, truth = "truth", knn_normalized_weigthed) %>% add_column(model = "Weigthed Normalized kNN"),
-  pr_auc(predictions, truth = "truth", nn) %>% add_column(model = "Neural Network"),
-  pr_auc(predictions, truth = "truth", rf_150) %>% add_column(model = "Random Forest with 150 trees"),
-  pr_auc(predictions, truth = "truth", rf_500) %>% add_column(model = "Random Forest with 500 trees"),
-  pr_auc(predictions, truth = "truth", rf_1000) %>% add_column(model = "Random Forest with 1000 trees"),
-  pr_auc(predictions, truth = "truth", random) %>% add_column(model = "Random Classifier")
+  pr_auc(predictions, truth = "truth", knn) %>%
+    add_column(model = "kNN"),
+  pr_auc(predictions, truth = "truth", knn_normalized) %>%
+    add_column(model = "Normalized kNN"),
+  pr_auc(predictions, truth = "truth", knn_normalized_weigthed) %>%
+    add_column(model = "Weigthed Normalized kNN"),
+  pr_auc(predictions, truth = "truth", nn) %>%
+    add_column(model = "Neural Network"),
+  pr_auc(predictions, truth = "truth", rf_150) %>%
+    add_column(model = "Random Forest with 150 trees"),
+  pr_auc(predictions, truth = "truth", rf_500) %>%
+    add_column(model = "Random Forest with 500 trees"),
+  pr_auc(predictions, truth = "truth", rf_1000) %>%
+    add_column(model = "Random Forest with 1000 trees"),
+  pr_auc(predictions, truth = "truth", random) %>%
+    add_column(model = "Random Classifier")
 )
 
 roc_aocs <- bind_rows(
-  roc_auc(predictions, truth = "truth", knn) %>% add_column(model = "kNN"),
-  roc_auc(predictions, truth = "truth", knn_normalized) %>% add_column(model = "Normalized kNN"),
-  roc_auc(predictions, truth = "truth", knn_normalized_weigthed) %>% add_column(model = "Weigthed Normalized kNN"),
-  roc_auc(predictions, truth = "truth", nn) %>% add_column(model = "Neural Network"),
-  roc_auc(predictions, truth = "truth", rf_150) %>% add_column(model = "Random Forest with 150 trees"),
-  roc_auc(predictions, truth = "truth", rf_500) %>% add_column(model = "Random Forest with 500 trees"),
-  roc_auc(predictions, truth = "truth", rf_1000) %>% add_column(model = "Random Forest with 1000 trees"),
-  roc_auc(predictions, truth = "truth", random) %>% add_column(model = "Random Classifier")
+  roc_auc(predictions, truth = "truth", knn) %>%
+    add_column(model = "kNN"),
+  roc_auc(predictions, truth = "truth", knn_normalized) %>%
+    add_column(model = "Normalized kNN"),
+  roc_auc(predictions, truth = "truth", knn_normalized_weigthed) %>%
+    add_column(model = "Weigthed Normalized kNN"),
+  roc_auc(predictions, truth = "truth", nn) %>%
+    add_column(model = "Neural Network"),
+  roc_auc(predictions, truth = "truth", rf_150) %>%
+    add_column(model = "Random Forest with 150 trees"),
+  roc_auc(predictions, truth = "truth", rf_500) %>%
+    add_column(model = "Random Forest with 500 trees"),
+  roc_auc(predictions, truth = "truth", rf_1000) %>%
+    add_column(model = "Random Forest with 1000 trees"),
+  roc_auc(predictions, truth = "truth", random) %>%
+    add_column(model = "Random Classifier")
 )
 
 pr_aocs <- pr_aocs %>%
@@ -862,14 +878,22 @@ pr_aocs %>%
 
 ```{r pr-curves, cache=TRUE}
 pr_curves <- bind_rows(
-  pr_curve(predictions, truth = "truth", knn) %>% add_column(model = "kNN"),
-  pr_curve(predictions, truth = "truth", knn_normalized) %>% add_column(model = "Normalized kNN"),
-  pr_curve(predictions, truth = "truth", knn_normalized_weigthed) %>% add_column(model = "Weigthed Normalized kNN"),
-  pr_curve(predictions, truth = "truth", nn) %>% add_column(model = "Neural Network"),
-  pr_curve(predictions, truth = "truth", rf_150) %>% add_column(model = "Random Forest with 150 trees"),
-  pr_curve(predictions, truth = "truth", rf_500) %>% add_column(model = "Random Forest with 500 trees"),
-  pr_curve(predictions, truth = "truth", rf_1000) %>% add_column(model = "Random Forest with 1000 trees"),
-  pr_curve(predictions, truth = "truth", random) %>% add_column(model = "Random Classifier")
+  pr_curve(predictions, truth = "truth", knn) %>%
+    add_column(model = "kNN"),
+  pr_curve(predictions, truth = "truth", knn_normalized) %>%
+    add_column(model = "Normalized kNN"),
+  pr_curve(predictions, truth = "truth", knn_normalized_weigthed) %>%
+    add_column(model = "Weigthed Normalized kNN"),
+  pr_curve(predictions, truth = "truth", nn) %>%
+    add_column(model = "Neural Network"),
+  pr_curve(predictions, truth = "truth", rf_150) %>%
+    add_column(model = "Random Forest with 150 trees"),
+  pr_curve(predictions, truth = "truth", rf_500) %>%
+    add_column(model = "Random Forest with 500 trees"),
+  pr_curve(predictions, truth = "truth", rf_1000) %>%
+    add_column(model = "Random Forest with 1000 trees"),
+  pr_curve(predictions, truth = "truth", random) %>%
+    add_column(model = "Random Classifier")
 )
 
 pr_curves %>%
@@ -880,14 +904,22 @@ pr_curves %>%
 
 ```{r roc-curves, cache=TRUE}
 roc_curves <- bind_rows(
-  roc_curve(predictions, truth = "truth", knn) %>% add_column(model = "kNN"),
-  roc_curve(predictions, truth = "truth", knn_normalized) %>% add_column(model = "Normalized kNN"),
-  roc_curve(predictions, truth = "truth", knn_normalized_weigthed) %>% add_column(model = "Weigthed Normalized kNN"),
-  roc_curve(predictions, truth = "truth", nn) %>% add_column(model = "Neural Network"),
-  roc_curve(predictions, truth = "truth", rf_150) %>% add_column(model = "Random Forest with 150 trees"),
-  roc_curve(predictions, truth = "truth", rf_500) %>% add_column(model = "Random Forest with 500 trees"),
-  roc_curve(predictions, truth = "truth", rf_1000) %>% add_column(model = "Random Forest with 1000 trees"),
-  roc_curve(predictions, truth = "truth", random) %>% add_column(model = "Random Classifier")
+  roc_curve(predictions, truth = "truth", knn) %>%
+    add_column(model = "kNN"),
+  roc_curve(predictions, truth = "truth", knn_normalized) %>%
+    add_column(model = "Normalized kNN"),
+  roc_curve(predictions, truth = "truth", knn_normalized_weigthed) %>%
+    add_column(model = "Weigthed Normalized kNN"),
+  roc_curve(predictions, truth = "truth", nn) %>%
+    add_column(model = "Neural Network"),
+  roc_curve(predictions, truth = "truth", rf_150) %>%
+    add_column(model = "Random Forest with 150 trees"),
+  roc_curve(predictions, truth = "truth", rf_500) %>%
+    add_column(model = "Random Forest with 500 trees"),
+  roc_curve(predictions, truth = "truth", rf_1000) %>%
+    add_column(model = "Random Forest with 1000 trees"),
+  roc_curve(predictions, truth = "truth", random) %>%
+    add_column(model = "Random Classifier")
 )
 
 roc_curves %>%
@@ -908,9 +940,16 @@ comparison_roc_curves <- bind_rows(
     add_column(model = "ClueBot NG")
 )
 
+cluebot <-
+  tibble(specificity = c(1 - 0.01, 1 - 0.025),
+         sensitivity = c(0.4,  0.55))
+
 comparison_ggplot <- comparison_roc_curves %>%
   ggplot(aes(x = 1 - specificity, y = sensitivity, color = model)) +
   geom_line() +
+  geom_point(data = cluebot,
+             mapping = aes(x = 1 - specificity, y = sensitivity),
+             inherit.aes = FALSE) +
   ggtitle("ROC Curves of best algorithm compared with data from ClueBot NG") +
   ylab("sensitivity (TP rate)") +
   xlab("1 - specificity (FP rate)")
@@ -920,10 +959,10 @@ comparison_ggplot
 # plot it against zoomed in
 comparison_ggplot +
   ggtitle("Zoomed in ROC Curves of best algorithm compared with data from ClueBot NG") +
-  xlim(0, 0.1) +
-  ylim(0.25, 0.75)
+  xlim(0, 0.03) +
+  ylim(0.35, 0.60)
 ```
-
+Our algorithm with the best PR-AUC, a Random Forest with 500 trees, has an TP-rate of ~42.5% at 0.01% FP-rate, and ~57.5% TP-rate at 0.025% FP-rate. The more important measure is the former, since that is what is being used in production at Wikipedia.
 
 ## Conclusion
 
