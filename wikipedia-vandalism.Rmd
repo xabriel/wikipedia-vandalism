@@ -57,25 +57,23 @@ if (!dir.exists("data/pan-wikipedia-vandalism-corpus-2010")) {
 
 ## Introduction
 
-(An introduction/overview/executive summary section that describes the dataset and variables, and summarizes the goal of the project and key steps that were performed.)
-
 Wikipedia is a free online encyclopedia that is written and maintained by volunteers. Anyone with internet access can edit Wikipedia. This model has enabled Wikipedia to grow steadily since its inception in 2001 to its current 58 million articles in 325 languages. As of November 2020, Wikipedia is edited 17 million times per month (1.9 edits per second) @Wiki-Wikipedia.
 
-Most of the edits are bona fide contributions. However, about 7% of them are vandalism. Wikipedia defines vandalism as "any change or edit that manipulates content in a way that deliberately compromises Wikipedia's integrity" @Wiki-Vandalism. Vandalism examples include adding out of context profanity, nonsensical additions, removing content without a reason, and adding plausible but false content.
+Most of the edits are bona fide contributions. However, about 7% of them are vandalism. Wikipedia defines vandalism as "any change or edit that manipulates content in a way that deliberately compromises Wikipedia's integrity" @Wiki-Vandalism. Vandalism examples include adding out of context profanity, nonsense, removing content without a reason, and adding plausible but false content.
 
-Wikipedia vandalism is handled with manual and automated approaches. In manual approaches, vandalism is removed by the same community of contributors. In severe cases, where vandalism occurs constantly for a particular entry, administrators may enable edit restrictions. Both of these manual approaches slow down the rate of quality contributions since time has to be diverted to clean up existing content.
+Wikipedia vandalism is handled with manual and automated approaches. In manual approaches, vandalism is removed by the same community of contributors. In severe cases, where vandalism occurs constantly for a particular entry, administrators may enable edit restrictions. Both of these manual approaches slow down the rate of quality contributions since time has to be diverted to clean up existing content, or contributions are blocked to some users by the restrictions.
 
-In automated approaches, software bots have been implemented to detect and correct vandalism. The first iteration of bots used heuristics and regular expressions to detect potential vandalism. The second iteration utilizes more sophisticated approaches. As an example, the "ClueBot NG" bot uses Naive Bayes and Neural Networks to flag vandalism in the English Wikipedia. It catches about 40% of vandalism with its current setting of maximum 0.1% false positive rate @Wiki-User-ClueBotNG. This is the current state of the work.
+In automated approaches, software bots have been implemented to detect and correct vandalism. The first iteration of bots used heuristics and regular expressions to detect potential vandalism. The second iteration utilizes more sophisticated approaches. As an example, the "ClueBot NG" bot uses Naive Bayes and Neural Networks to detect vandalism in the English Wikipedia. It catches about 40% of vandalism with its current setting of maximum 0.1% false positive rate @Wiki-User-ClueBotNG. This is the current state of the work.
 
-There has been considerate work done to improve detection [couple cites here]. One of the most interesting approaches is that of @Potthast-2010, in which a competition was held to encourage contributions to the state of the art. We utilize the same dataset as in @Potthast-2010 to implemented a binary classifier that can be compared to the top submissions to their competition.
+There has been considerate work done to improve detection [@Potthast-2010, @MolaVelasco-2012]. One of the most interesting approaches is that of @Potthast-2010, in which a competition was held to encourage contributions to the state of the art. We utilize the same dataset as in @Potthast-2010 to implemented a binary classifier that can be compared to the top submission to their competition.
 
 The dataset is the "PAN Wikipedia Vandalism Corpus 2010". It consists of 32,452 edits on 28,468 English Wikipedia articles, among which 2,391 vandalism edits have been identified @Wiki-Corpus-2010. It reflects the same rate of vandalism as Wikipedia at 7.38%.
 
 The dataset consists of multiple files with metadata about the edits such as a unique identifier, the author of the edit, whether the edit is considered vandalism, among others. It also includes the content of the edited article before and after the edit, and thus we can use existing textual difference algorithms to find the additions and deletions. We discuss the dataset and transformations in more details in the Methods and Analysis section.
 
-Our problem to solve is: given a set of edits of Wikipedia articles, we want to separate the ones we believe to be vandalism, from the ones we believe to not be. This is an imbalanced binary classification. Existing literature suggest that an appropriate method to measure performance is with "Precision-recall curves" (PRC) @Potthast-2010, @Saito-2015. This method allows us to visually compare the trade-off between these metrics, and by calculating the area under the curve of this method (PR-AUC), we can summarize the performance to a single number. This number can be used to choose the best parameters when tuning a model, and to compare models numerically.
+We define the problem as follows: given a set of edits of Wikipedia articles, we want to separate the ones we believe to be vandalism, from the ones we believe to not be. Given that most edits are bona fide, this is an imbalanced binary classification problem. Existing literature suggest that an appropriate method to measure performance is with a "Precision-recall curve" (PR Curve) @Potthast-2010, @Saito-2015. This method allows us to visually compare the trade-off between these metrics, and by calculating the area under the curve of this method (PR-AUC), we can summarize the performance to a single number. This number can then be used to choose the best parameters when tuning a model, and to compare models numerically.
 
-We find that by implementing a set of 24 features that rely on the provided dataset without any other external source, we achieve a PR-AUC of \~0.68 with a Random Forest algorithm trained with 1000 trees and 3 random features at each split point. This result is slightly better than the best approach discussed in @Potthast-2010 which yielded \~0.67.
+We find that by implementing a set of 24 features that rely on the provided dataset without any other external source, we achieve a PR-AUC of \~0.6608231 with a Random Forest algorithm trained with 1000 trees and 3 random features at each split point. This result is on par with the best approach discussed in @Potthast-2010 which yields \~0.6628893.
 
 ## Methods and Analysis
 
@@ -328,18 +326,20 @@ There are multiple ways to evaluate the performance of a learning algorithm. Met
 
 For imbalanced binary classification, a metric like $Accuracy = \frac{TP + TN}{TP + TN + FP +FN}$ can be misleading since we would get a high accuracy even if we always predict the majority class. In our case where the `vandalism` class is 7.38% of the dataset, always predicting majority class would yield 92.62% accuracy.
 
-Additionally, we need a metric that penalizes FP hits, since labeling bona fide contributions as `vandalism` is a particularly bad outcome for a system as Wikipedia that depends on volunteer contributions. Existing literature suggest that an appropriate metric for this situation is the "Precision-recall curve" (PRC). This curve allows us to visually compare the trade-off between precision and recall, provides visual separation when comparing alternative classifier curves, and by calculating the area under the curve (PR-AUC), we can summarize the performance to a single number @Potthast-2010, @Saito-2015.
+Additionally, we need a metric that penalizes FP hits, since labeling bona fide contributions as `vandalism` is a particularly bad outcome for a system as Wikipedia that depends on volunteer contributions. Existing literature suggest that an appropriate metric for this situation is the "Precision-recall curve" (PR Curve). This curve allows us to visually compare the trade-off between precision and recall, provides visual separation when comparing alternative classifiers, and by calculating the area under the curve (PR-AUC), we can summarize the performance to a single number @Potthast-2010, @Saito-2015.
 
-PRC are calculated as follows: 1) Implement a classification algorithm. 2) Use the algorithm to predict the probability of the 'positive' class (in our case `vandalism`). 3) Now calculate the confusion matrix of the algorithm while varying the threshold $\tau$ of binary classification between [0,1]. 4) Use the confusion matrix at each threshold $\tau$ to calculate the Precision and Recall, and plot the outcome as x and y, respectively.
+PR Curves are calculated as follows: 1) Implement a binary classification algorithm. 2) Use the algorithm to predict the probability of the 'positive' class (in our case `vandalism`). 3) Now calculate the confusion matrix of the algorithm while varying the threshold $\tau$ of binary classification between [0,1]. 4) Use the confusion matrix at each threshold $\tau$ to calculate the Precision and Recall, and plot the outcome as x and y, respectively.
 
 #### Metric for comparison against ClueBot NG @Wiki-User-ClueBotNG
-For completeness, we also compare our classifier to the current best bot implementation in the English Wikipedia. Only two performance metrics seem to be available: 40% TP-rate at fixed 0.1% FP rate ($TP-rate$), and 55% TP-rate at fixed 0.25% false positive rate @Wiki-User-ClueBotNG.
+We also compare our classifier to the current best bot implementation in the English Wikipedia. Only two performance metrics seem to be available: 40% TP-rate at fixed 0.1% FP rate ($TP-rate$), and 55% TP-rate at fixed 0.25% false positive rate @Wiki-User-ClueBotNG[^2].
 
-These two data points can be used as reference points in a Receiver Operating Characteristic Curve (ROC Curve). A ROC Curve is constructed similarly to a PR curve, but instead we plot the true positive rate against the false positive rate. Although @Potthast-2010 finds ROC curves not the most appropriate for comparing vandalism classifiers, it is the only comparison that we can do against the limited data available from ClueBot NG's performance.
+[^2]: After perusing ClueBot NG's Request for approval at https://en.wikipedia.org/wiki/Wikipedia:Bots/Requests_for_approval/ClueBot_NG, it seems like at some point there was a 'trial report', that is, a more detailed with perhaps a full ROC Curve, but this document has been lost as it was kept in a personal server rather than as part of Wikipedia. We asked for help to find this document at https://web.libera.chat/?channel=#wikipedia-en-help, but as of the time of publishing, the report has not been found.
+
+These two data points can be used as reference points in a Receiver Operating Characteristic Curve (ROC Curve). A ROC Curve is constructed similarly to a PR curve, but instead we plot the TP rate against the FP rate. This is the only comparison that we can do against the limited data available from ClueBot NG's performance.
 
 #### Validation and test data
 
-In this work, the validation set will be 50% of source data. We do this to be comparable to the  classifiers discussed in [Potthast 2010], where a 50% validation set was used as well. Given half of the data will be used for validation, we opt to do the training using 10-fold cross validation.
+In this work, the validation set will be 50% of source data. We do this to be comparable to the classifiers discussed in [Potthast 2010], where a 50% validation set was used as well. Given half of the data will be used for validation, we opt to do the training using 10-fold cross validation, instead of further partitioning into a discrete test set.
 ```{r data-split, include=FALSE, cache=TRUE}
 # validation set will be 50% of source data, to be comparable to [Potthast 2010].
 
@@ -761,7 +761,6 @@ train_rf_1000 <-  train(
 # we are done with caret cluster
 stopCluster(cl)
 ```
-(A methods/analysis section that explains the process and techniques used, including data cleaning, data exploration and visualization, any insights gained, and your modeling approach. At least two different models or algorithms must be used, with at least one being more advanced than linear or logistic regression for prediction problems. )
 
 ## Results
 In this work we considered three different algorithms: K-nearest Neighbors (kNN), Neural Networks (NN) and Random Forest (RF).
@@ -901,7 +900,7 @@ pr_curves %>%
   geom_line() +
   ggtitle("PR Curves of all tested algorithms")
 ```
-In ROC space, we can appreciate mostly the same ranking as in PR space:
+In ROC space, we can appreciate the same ranking as in PR space. Note how it is significantly more difficult to separate the algorithms, thus agreeing with @Saito-2015 in that a PR curve is more informative when comparing imbalanced binary classifiers.
 
 ```{r roc-curves, echo=FALSE, cache=TRUE}
 roc_curves <- bind_rows(
@@ -933,7 +932,7 @@ roc_curves %>%
 
 ### Comparison against top classifier from @Potthast-2010
 
-In this comparison, we can see that our solution performs very similarly as the best from @Potthast-2010. In PR Curve space, we perform slightly better on recall values between 0.4 and 0.75, but otherwise their solution has the advantage.
+In this comparison, we can see that our solution performs very similarly as the best from @Potthast-2010. In PR Curve space, we perform slightly better on recall values between 0.4 and 0.75, but otherwise their solution has a slight advantage.
 ```{r potthast-comparison, echo=FALSE, cache=TRUE}
 # load in data from 3 best algorithm from Potthast
 archivePath <- "data/pan-wikipedia-vandalism-detection-2010/molavelasco10-runs/"
@@ -1026,7 +1025,7 @@ comparison_ggplot <- comparison_roc_curves %>%
              inherit.aes = FALSE) +
   ggtitle("ROC Curve of best algorithm and data from ClueBot NG") +
   ylab("sensitivity (TP rate)") +
-  xlab("1 - specificity (FP rate)") +
+  xlab("1 - specificity (FP rate)")
 
 # comparison_ggplot
 
@@ -1041,12 +1040,12 @@ comparison_ggplot +
 
 In this report we have discussed the problem of detecting vandalism in Wikipedia, an online encyclopedia that anyone can edit. We utilize the PAN Wikipedia 2010 Vandalism corpus to derive a set of 24 features. We discuss, train and validate a set of binary classification algorithms. We find that Random Forests yield the best performance both from a PR-AUC, as well as a ROC-AUC perspective. Specifically, a Random Forest with 1000 trees and 3 random features at each split point yields the best performance.
 
-When we compare our best classifier with the best from @Potthast-2010, we find virtually equivalent PR-AUC performance. When we compare it against @Wiki-User-ClueBotNG, Wikipedia's current production classifier, we find our solution has a ~5% advantage at a FP-rate of 0.01%.
+When we compare our best classifier with the best from @Potthast-2010, we find virtually equivalent PR-AUC performance. When we compare it against @Wiki-User-ClueBotNG, Wikipedia's current production classifier, we find our solution has a ~5% advantage at a FP-rate of 0.01%. Although our best classifier is head to head with both research and production systems, we do not believe a 5% gain justifies the engineering cost required to deploy such a new classifier to production.
 
-Although our solutions are head to head with both research and production systems, we do not believe a 5% gain justifies the engineering cost required to deploy such a new classifier to production. We focused on maximizing the PR-AUC metric for our work to be comparable to @Potthast-2010. We find that this metric has strong research merit, but it doesn't focus on the core Wikipedia problem: they need a sufficiently low FP-rate to be able to justify a vandalism bot that doesn't deter bona fide contributions. In future work, we will focus on improving the $TP-rate$ with the constraint that the $FP-rate <= 0.01%$.
+We focused on maximizing the PR-AUC metric for our work to be comparable to @Potthast-2010. We find that this metric has strong research merit, but it doesn't translate to the core Wikipedia vandalism problem: they need a sufficiently low FP-rate to be able to justify the use of a vandalism bot. That is, their main consideration is that the classifier should not deter bona fide contributions. In future work, we will focus on improving the TP-rate with the constraint that the FP-rate <= 0.01%.
 
-It is reasonable to expect that a production solution for Wikipedia vandalism should strive to be easily interpretable. A user that makes a contribution that is classified as `vandalism` should understand why that is the case. We believe a comprehensive report like ours helps with this interpretabilty issue. However, we would like to explore if simpler, self-describing algorithms such as Decision Trees could achieve reasonable FP-rates while being less opaque for lay users.
+It is reasonable to expect that a production solution for Wikipedia vandalism should strive to be easily interpretable. A user that makes a contribution that is classified as `vandalism` should understand why. We believe a comprehensive report that explains the methods and includes the source code like ours helps with this interpretabilty issue. However, we would like to explore if simpler, self-describing algorithms such as Decision Trees could achieve reasonable FP-rates while also being less opaque for lay users.
 
-Additionally, it has been argued that the use of features such as whether a user is anonymous or not can be an inequitable treatment of contributors @Laat-2015. It would be interesting then to explore in future work how to develop anti-vandalism systems that take this critique into account.
+Finally, it has been argued that the use of features such as whether a user is anonymous or not, or whether they use or not contractions, can be an inequitable treatment of contributors @Laat-2015. We agree that these features could lead to biased FP hits. It would be interesting then to explore in future work how to develop anti-vandalism systems that take this critique into account.
 
 `r if (knitr::is_html_output()) '## References {-}'`
