@@ -3,8 +3,9 @@ title: "Detecting Vandalism on Wikipedia"
 author: "Xabriel J Collazo Mojica"
 date: "2/14/2022"
 output:
+  pdf_document:
+    latex_engine: xelatex
   html_document: default
-  pdf_document: default
 bibliography: references.bib
 csl: journal-of-the-acm.csl
 link-citations: yes
@@ -26,6 +27,8 @@ if(!require(yardstick)) install.packages("yardstick", repos = "http://cran.us.r-
 if(!require(tidytext)) install.packages("tidytext", repos = "http://cran.us.r-project.org")
 if(!require(nnet)) install.packages("nnet", repos = "http://cran.us.r-project.org")
 if(!require(kknn)) install.packages("kknn", repos = "http://cran.us.r-project.org")
+if(!require(wordcloud)) install.packages("wordcloud", repos = "http://cran.us.r-project.org")
+
 
 library(tidyverse)
 library(multidplyr)
@@ -36,6 +39,7 @@ library(yardstick)
 library(tidytext)
 library(nnet)
 library(kknn)
+library(wordcloud)
 
 # load up helper functions
 source("functions.R")
@@ -77,7 +81,7 @@ The dataset consists of multiple files with metadata about the edits such as a u
 
 We define the problem as follows: given a set of edits of Wikipedia articles, we want to separate the ones we believe to be vandalism, from the ones we believe to not be. Given that most edits are bona fide, this is an imbalanced binary classification problem. Existing literature suggest that an appropriate method to measure performance is with a "Precision-recall curve" (PR Curve) @Potthast-2010, @Saito-2015. This method allows us to visually compare the trade-off between these metrics, and by calculating the area under the curve of this method (PR-AUC), we can summarize the performance to a single number. This number can then be used to choose the best parameters when tuning a model, and to compare models.
 
-We find that by implementing a set of 24 features that rely on the provided dataset without any other external source, we achieve a PR-AUC of \~0.6608231 with a Random Forest algorithm trained with 1000 trees and 3 random features at each split point. This result is on par with the best approach discussed in @Potthast-2010 which yields \~0.6628893.
+We find that by implementing a set of 24 features that rely on the provided dataset without any other external source, we achieve a PR-AUC of 0.6608231 with a Random Forest algorithm trained with 1000 trees and 3 random features at each split point. This result is on par with the best approach discussed in @Potthast-2010 which yields 0.6628893.
 
 ## Methods and Analysis
 
@@ -280,7 +284,13 @@ rm(diffs, revisions)
 As alluded previously, the dataset is highly imbalanced with the `vandalism` class being 7.38% of the data:
 
 ```{r imbalance, cache=TRUE}
-edits %>% pull(class) %>% table()
+edits %>%
+  collect() %>%
+  group_by(class) %>%
+  summarise(n = n()) %>%
+  ggplot(aes(x=class, y= n)) +
+  geom_bar(stat="identity") +
+  ggtitle("Distribution of edits per class")
 ```
 
 However, the `vandalism` class does show trends that can drive the classification. As an example, most of the profanities are found in the `vandalism` class:
@@ -296,7 +306,7 @@ multidplyr::cluster_copy(cluster, 'profanities')
 
 # extract words from the diff additions, and check whether each one of them
 # against a profanity word list. Then calculate the profanity rate for each class.
-edits %>%
+words_by_class <- edits %>%
   collect() %>%
   select(class, additions) %>%
   mutate(
@@ -312,10 +322,39 @@ edits %>%
            bin_search(profanities, w) > 0
          })) %>%
   collect() %>%
-  group_by(class) %>%
-  summarise(profanity_rate = sum(is_profanity) / n())
+  group_by(class)
+
+words_by_class %>%
+  summarise(profanity_rate = sum(is_profanity) / n()) %>%
+  ggplot(aes(x = class, y = profanity_rate)) +
+  geom_bar(stat="identity") +
+  ggtitle("Rate of profanity use per class")
 ```
-Similarly, most of the vandals are anonymous:
+
+Similarly, vandals tend to use words that differs from bona fide edits. In the comparison wordcloud below, we can see that vandals tend to use profanities and contractions, and notably the word 'time', while bona fide edits tend to use wikisyntax and URLs.
+```{r wordcloud, echo=TRUE, message=FALSE, warning=FALSE, cache=TRUE, fig.align='center'}
+word_counts <- words_by_class %>%
+  anti_join(stop_words) %>%
+  filter(!str_detect(word, "^\\d+$")) %>% # no numbers
+  group_by(class, word) %>%
+  summarise(n = n()) %>%
+  arrange(desc(n)) %>%
+  pivot_wider(names_from = class, values_from = n, values_fill = 0L) %>%
+  # normalize vandalism words hits since it is 7.38%
+  mutate(vandalism = as.integer(vandalism * 1/.0738))
+
+word_counts_matrix <- as.matrix(word_counts[,-1])
+rownames(word_counts_matrix) <- word_counts$word
+
+comparison.cloud(
+  word_counts_matrix,
+  random.order=FALSE,
+  title.size = 2L,
+  match.colors = TRUE
+)
+```
+
+Additionally, most of the vandals are anonymous:
 ```{r vandals-anonymous, cache=TRUE}
 # a regex that matches IP addresses
 ip_address_regex <- "\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}"
@@ -325,10 +364,13 @@ edits %>%
   select(editor, class) %>%
   mutate(is_anonymous = str_detect(editor, ip_address_regex)) %>%
   group_by(class) %>%
-  summarise(anonymous_rate = sum(is_anonymous) / n())
+  summarise(anonymity_rate = sum(is_anonymous) / n()) %>%
+  ggplot(aes(x = class, y = anonymity_rate)) +
+  geom_bar(stat="identity") +
+  ggtitle("Rate of anonymity per class")
 ```
 
-These and other signals can then be used to construct a feature set that tries to separate the vandalism from the bona fide contributions. Note however that not all profanity use is vandalism, and not all anonymous contributors are vandals. Thus our main insight is that since the signals seem to be blurry, we need to be able to evaluate our solution in a way that penalizes classifying bona fide contributions as vandalism.
+These and other signals can then be used to construct a feature set that tries to separate the vandalism from the bona fide contributions. Note however that not all profanity use is vandalism, and not all anonymous contributors are vandals. Similarly, not all contraction use is illegitimate. Thus our main insight is that since the signals seem to be blurry, we need to be able to evaluate our solution in a way that penalizes classifying bona fide contributions as vandalism.
 
 ### Evaluating performance
 
@@ -368,9 +410,9 @@ validation_edits <- edits %>% as_tibble() %>% .[validation_index, ]
 train_edits <- edits %>% as_tibble() %>% .[-validation_index, ]
 ```
 
-### Feature selection
+### Feature engineering
 
-The following set of features have been implemented, informed by the work of @Potthast-2010 and @MolaVelasco-2012. Note that all of these features are extracted from the dataset without aid of external sources of information. Unless otherwise noted, these features were extracted from the additions of the diff. We considered to also include features from the deletions, but they yielded insignificant gains.
+The following set of features have been implemented from descriptions of the work of @Potthast-2010 and @MolaVelasco-2012. They were extracted from the dataset without aid of external sources of information. Unless otherwise noted, these features were derived from the additions of the diff. We considered features from the deletions, but they either yielded insignificant gains or hurt performance.
 
 Category | Feature | Description
 --------|---------|--------
@@ -1059,9 +1101,9 @@ tibble(
 
 In this report we have discussed the problem of detecting vandalism in Wikipedia, an online encyclopedia that anyone can edit. We utilize the PAN Wikipedia 2010 Vandalism corpus to derive a set of 24 features. We discuss, train and validate a set of binary classification algorithms. We find that Random Forests yield the best performance both from a PR-AUC, as well as a ROC-AUC perspective. Specifically, a Random Forest with 1000 trees and 3 random features at each split point yields the best performance.
 
-When we compare our best classifier with the best from @Potthast-2010, we find similar PR-AUC performance. When we compare it against @Wiki-User-ClueBotNG, Wikipedia's current production classifier, we find our solution has a ~5% advantage at a FP-rate of 0.01%. Although our best classifier is comparable with both research and production systems, we do not believe a 5% gain justifies the engineering cost required to deploy such a new classifier to production.
+When we compare our best classifier with the best from @Potthast-2010, we find similar PR-AUC performance. When we compare it against @Wiki-User-ClueBotNG, Wikipedia's current production classifier, we find our solution has an average ~5% advantage at a FP-rates of 0.01% and 0.025%. In other words, out of every 1000 edits, we can detect 425 vandalisms while we incorrectly label 10. The current system detects 400.
 
-We focused on maximizing the PR-AUC metric for our work to be comparable to @Potthast-2010. We find that this metric has strong research merit, but it doesn't translate to the core Wikipedia vandalism problem: they need a sufficiently low FP-rate to be able to justify the use of a vandalism bot. That is, their main consideration is that the classifier should not deter bona fide contributions. In future work, we will focus on improving the TP-rate with the constraint that the FP-rate <= 0.01%.
+We focused on maximizing the PR-AUC metric for our work to be comparable to @Potthast-2010. We find that this metric has strong research merit, but it doesn't translate to the core Wikipedia vandalism problem: they need a sufficiently low FP-rate to be able to justify the use of a vandalism bot. That is, their main consideration is that the classifier should not deter bona fide contributions. In future work, we will focus on improving the TP-rate with the constraint that the FP-rate <= 0.01%, instead of trying to maximize PR-AUC.
 
 It is reasonable to expect that a production solution for Wikipedia vandalism should strive to be easy to interpret. A user that makes a contribution that is classified as `vandalism` should understand why. We believe a comprehensive report that explains the methods and includes the source code like ours helps with this interpretability issue. However, we would like to explore if simpler, self-describing algorithms such as Decision Trees could achieve reasonable FP-rates while also being less opaque for lay users.
 
