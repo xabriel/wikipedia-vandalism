@@ -1,7 +1,0 @@
-Some citations to consider:
-
-Details about ClueBot-NG: https://en.wikipedia.org/wiki/User:ClueBot_NG
-ClueBot-NG's swear list: https://github.com/cluebotng/core/blob/main/conf/words.conf#L133
-
-
-We chose gzip purely out of perf: https://cran.r-project.org/web/packages/brotli/vignettes/benchmarks.html
