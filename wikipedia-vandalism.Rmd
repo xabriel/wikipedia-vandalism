@@ -4,7 +4,7 @@ author: "Xabriel J Collazo Mojica"
 date: "2/14/2022"
 output:
   pdf_document:
-    latex_engine: xelatex
+    latex_engine: xelatex # workaround for unicode
   html_document: default
 bibliography: references.bib
 csl: journal-of-the-acm.csl
@@ -137,7 +137,7 @@ Processing `article-revisions/` is more interesting. Our end goal is to calculat
 
 [^1]: We considered multiple approaches for calculating the diff, including using portable code from the `diffobj` R package. However, we found no elegant way to transform the diff into a format amenable to our purposes other than with `git diff`. If the reader is attempting to reproduce our code, we recommend the use of a Unix-like system like Linux or MacOS.
 
-```{r git-diff-definition, eval=FALSE, cache=TRUE}
+```{r git-diff-definition, eval=FALSE, cache=TRUE, purl=FALSE}
 git_diff <- Vectorize(function(old, new) {
   system2(
     command = "git",
@@ -983,7 +983,7 @@ roc_curves %>%
 
 In this comparison, we can see that our solution performs similarly as the best from @Potthast-2010. In PR Curve space, we perform slightly better on recall values between 0.4 and 0.75, but otherwise their solution has a slight advantage.
 ```{r potthast-comparison, echo=FALSE, cache=TRUE}
-# load in data from 3 best algorithm from Potthast
+# load in data from best algorithm from Potthast
 archivePath <- "data/pan-wikipedia-vandalism-detection-2010/molavelasco10-runs/"
 archiveName <- "molavelasco10-run-2010-06-23-1103.txt.zip"
 fileName <- "molavelasco10-run-2010-06-23-1103.txt"
