@@ -19,6 +19,11 @@ functions.R : Helper functions used in wikipedia-vandalism.R and wikipedia-vanda
 
 scrapes.R: Useful scrapes to get word lists. Scraped lists can be found under `data/en/`.
 
+
+### Reproducibility:
+
+Both wikipedia-vandalism.Rmd and wikipedia-vandalism.R contains all the R code needed to reproduce our results, including download of the dataset. System calls to `git diff` may not be compatible with Windows. It should work fine on Linux and MacOS.
+
 ### Warning:
 
 Because of the nature of vandalism, this report contains discussions of profanities, as well as a word list of profanities.
