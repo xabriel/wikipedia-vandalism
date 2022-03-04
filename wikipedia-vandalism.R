@@ -1,6 +1,3 @@
-## ----setup, include=FALSE, cache=TRUE-----------------------------------------------------------------------
-knitr::opts_chunk$set(echo = TRUE)
-
 #
 # Dependencies
 #
@@ -412,6 +409,8 @@ word_features <- edits %>%
     word_length = str_length(word)
   ) %>%
   collect() %>%
+  # since some lists may be emtpy, this group_by may return less rows than there are edits
+  # so we need to compensate for this later when joining.
   group_by(editid) %>%
   summarise(
     profanity_count = sum(is_profanity),
@@ -475,6 +474,8 @@ editor_features <- edits %>%
 all_features <-
   character_features %>%
   left_join(word_features, by = "editid") %>%
+  # fill in with 0s whatever word_features may be missing
+  mutate_all(~replace(., is.na(.), 0L)) %>%
   left_join(comment_features, by = "editid") %>%
   left_join(size_features, by = "editid") %>%
   left_join(editor_features, by = "editid") %>%
@@ -724,12 +725,11 @@ roc_aocs <- roc_aocs %>%
   rename("ROC-AUC" = .estimate) %>%
   select("ROC-AUC", model)
 
+# PR-AUC and ROC-AUC of all tested algorithms
 pr_aocs %>%
   left_join(roc_aocs, by = "model") %>%
   select(model, "PR-AUC", "ROC-AUC") %>%
-  arrange("PR-AUC") %>%
-  knitr::kable(caption = "PR-AUC and ROC-AUC of all tested algorithms")
-
+  arrange("PR-AUC")
 
 ## ----pr-curves, echo=FALSE, cache=TRUE----------------------------------------------------------------------
 pr_curves <- bind_rows(
@@ -847,11 +847,11 @@ roc_aocs <- roc_aocs %>%
   rename("ROC-AUC" = .estimate) %>%
   select("ROC-AUC", model)
 
+# PR-AUC and ROC-AUC of best algorithm and best from [6]
 pr_aocs %>%
   left_join(roc_aocs, by = "model") %>%
   select(model, "PR-AUC", "ROC-AUC") %>%
-  arrange("PR-AUC") %>%
-  knitr::kable(caption = "PR-AUC and ROC-AUC of best algorithm and best from [6]")
+  arrange("PR-AUC")
 
 
 ## ----cluebot-comparison, echo=FALSE, warning=FALSE, cache=TRUE----------------------------------------------
@@ -886,6 +886,7 @@ comparison_ggplot +
   xlim(0, 0.03) +
   ylim(0.35, 0.60)
 
+# Practical comparison points of best algorithms and ClueBot NG
 tibble(
   "model" = c("Random Forest with 1000 trees", "ClueBot NG", "Mola Velasco from [6]"),
   "TP-rate @ 0.01% FP-rate" =  c(42.5, 40, 40),
@@ -894,5 +895,5 @@ tibble(
     (42.5 + 57.5 - 40 - 55) / (40 + 55) * 100,
     (40 + 55 - 40 - 55) / (40 + 55) * 100,
     (40 + 51.5 - 40 - 55) / (40 + 55) * 100)
-) %>% knitr::kable(caption = "Practical comparison points of best algorithms and ClueBot NG")
+)
 
