@@ -122,7 +122,7 @@ revisions <- map_dfr(revisionPaths, function(path) {
   )
 })
 
-# calcualte diff for each edit
+# calculate diff for each edit
 diffs <- edits %>%
   select(editid, oldrevisionid, newrevisionid) %>%
   left_join(
