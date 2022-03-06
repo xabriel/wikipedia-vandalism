@@ -1,4 +1,4 @@
-## Detecting Vandalism on Wikipedia
+## Detecting Vandalism in Wikipedia
 
 In this report we discuss the problem of detecting vandalism in Wikipedia, an online encyclopedia that anyone can edit. We utilize the PAN Wikipedia 2010 Vandalism corpus to derive a set of 24 features. We discuss, train and validate a set of binary classification algorithms. We find that Random Forests yield the best performance both from a PR-AUC (0.6608231), as well as a ROC-AUC (0.9306720) perspective. Specifically, a Random Forest with 1000 trees and 3 random features at each split point yields the best performance.
 
