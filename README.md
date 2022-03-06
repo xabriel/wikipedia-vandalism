@@ -2,7 +2,7 @@
 
 In this report we discuss the problem of detecting vandalism in Wikipedia, an online encyclopedia that anyone can edit. We utilize the PAN Wikipedia 2010 Vandalism corpus to derive a set of 24 features. We discuss, train and validate a set of binary classification algorithms. We find that Random Forests yield the best performance both from a PR-AUC (0.6608231), as well as a ROC-AUC (0.9306720) perspective. Specifically, a Random Forest with 1000 trees and 3 random features at each split point yields the best performance.
 
-When we compare it against "ClueBot NG", Wikipedia's current production classifier, we find our solution has an average ~5% advantage at FP-rates of 0.01% and 0.025%. In other words, out of every 1000 edits, we can detect 425 vandalisms while we incorrectly label 10. The current system detects 400.
+When we compare it against "ClueBot NG", Wikipedia's current production classifier, we find our solution has an average ~5% advantage at FP-rates of 0.01% and 0.025%. In other words, out of every 10,000 edits that are true vandalism, we can detect 4,250, while out of every 10,000 edits that are true bona fide, we incorrectly label 1. The current system detects 4,000 and 1, respectively.
 
 ### Relevant files:
 
